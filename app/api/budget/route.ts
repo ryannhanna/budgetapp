@@ -51,6 +51,6 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error('PUT /api/budget:', e);
-    return NextResponse.json({ ok: false }, { status: 500 });
+    return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
   }
 }

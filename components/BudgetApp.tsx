@@ -97,7 +97,15 @@ export default function BudgetApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(state),
       })
-        .then(res => setSyncStatus(res.ok ? 'saved' : 'error'))
+        .then(async res => {
+          if (res.ok) {
+            setSyncStatus('saved');
+          } else {
+            const body = await res.json().catch(() => ({}));
+            console.error('Sync error:', body.error);
+            setSyncStatus('error');
+          }
+        })
         .catch(() => setSyncStatus('error'));
     }, 1000);
   }, [state, hydrated]);
