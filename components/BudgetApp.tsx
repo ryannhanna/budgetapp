@@ -76,6 +76,7 @@ export default function BudgetApp() {
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const isSavingRef = useRef(false);
   const skipSaveRef = useRef(false);
+  const localEditSeqRef = useRef(0); // incremented on every local user edit
 
   function applyFromDb(data: BudgetState) {
     skipSaveRef.current = true;
@@ -89,18 +90,21 @@ export default function BudgetApp() {
       setHydrated(true);
     });
 
-    // Poll every 10s to pick up changes from other devices
+    // Poll every 10s to pick up changes from other devices.
+    // Snapshot the edit sequence before the fetch — if it changed by the time
+    // the fetch returns, a local edit happened mid-flight and we discard the result.
     const poll = setInterval(async () => {
       if (isSavingRef.current) return;
+      const seq = localEditSeqRef.current;
       const data = await dbGet();
-      // Check again after the fetch — user may have made a change while it was in-flight
-      if (data && !isSavingRef.current) applyFromDb(data);
+      if (data && localEditSeqRef.current === seq) applyFromDb(data);
     }, 10_000);
 
     // Re-fetch when tab becomes visible
     function onVisible() {
       if (document.visibilityState === 'visible' && !isSavingRef.current) {
-        dbGet().then(data => { if (data && !isSavingRef.current) applyFromDb(data); });
+        const seq = localEditSeqRef.current;
+        dbGet().then(data => { if (data && localEditSeqRef.current === seq) applyFromDb(data); });
       }
     }
     document.addEventListener('visibilitychange', onVisible);
@@ -119,6 +123,7 @@ export default function BudgetApp() {
       setSyncStatus('saved');
       return;
     }
+    localEditSeqRef.current++;
     isSavingRef.current = true;
     setSyncStatus('saving');
     dbPut(state).then(ok => {
