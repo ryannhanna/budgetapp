@@ -45,19 +45,23 @@ const DEFAULT_STATE: BudgetState = {
   activeTab: 'dashboard',
 };
 
-const DIRTY_KEY = 'budget-dirty';
+const LS_STATE_KEY = 'budget-state';
+const LS_VERSION_KEY = 'budget-version';
 
-function writeDirty(state: BudgetState) {
-  try { localStorage.setItem(DIRTY_KEY, JSON.stringify(state)); } catch {}
+function lsWrite(state: BudgetState) {
+  try { localStorage.setItem(LS_STATE_KEY, JSON.stringify(state)); } catch {}
 }
-function clearDirty() {
-  try { localStorage.removeItem(DIRTY_KEY); } catch {}
-}
-function readDirty(): BudgetState | null {
+function lsRead(): BudgetState | null {
   try {
-    const raw = localStorage.getItem(DIRTY_KEY);
+    const raw = localStorage.getItem(LS_STATE_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
+}
+function lsVersion(): number {
+  return parseInt(localStorage.getItem(LS_VERSION_KEY) ?? '-1', 10);
+}
+function lsWriteVersion(v: number) {
+  try { localStorage.setItem(LS_VERSION_KEY, String(v)); } catch {}
 }
 
 async function dbGet(): Promise<{ state: BudgetState; version: number } | null> {
@@ -94,28 +98,33 @@ export default function BudgetApp() {
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const lastAppliedVersionRef = useRef(-1);
 
-  // Load from DB on mount
+  // Load on mount: show localStorage immediately, then check DB for changes from other devices.
   useEffect(() => {
     async function load() {
-      // If there's dirty state (a local edit whose keepalive PUT may not have
-      // committed before the page was refreshed), push it to DB first.
-      const dirty = readDirty();
-      if (dirty) {
-        const version = await dbPut(dirty);
-        if (version !== null) {
-          clearDirty();
-          lastAppliedVersionRef.current = version;
-          setState(dirty);
-          setHydrated(true);
-          return;
-        }
-      }
-      const result = await dbGet();
-      if (result) {
-        lastAppliedVersionRef.current = result.version;
-        setState(result.state);
+      // Show localStorage instantly — no spinner wait, and survives refresh regardless of DB timing.
+      const local = lsRead();
+      if (local) {
+        setState(local);
+        lastAppliedVersionRef.current = lsVersion();
       }
       setHydrated(true);
+
+      // Fetch DB in background. Only apply if DB version is higher, meaning another device saved.
+      const result = await dbGet();
+      if (!result) return;
+      if (result.version > lastAppliedVersionRef.current) {
+        // Another device saved something newer — apply it and update localStorage.
+        lastAppliedVersionRef.current = result.version;
+        lsWrite(result.state);
+        lsWriteVersion(result.version);
+        setState(result.state);
+      } else if (!local) {
+        // No localStorage at all (first load) — use DB and populate localStorage.
+        lastAppliedVersionRef.current = result.version;
+        lsWrite(result.state);
+        lsWriteVersion(result.version);
+        setState(result.state);
+      }
     }
     load();
 
@@ -124,6 +133,8 @@ export default function BudgetApp() {
       const result = await dbGet();
       if (result && result.version > lastAppliedVersionRef.current) {
         lastAppliedVersionRef.current = result.version;
+        lsWrite(result.state);
+        lsWriteVersion(result.version);
         setState(result.state);
       }
     }, 10_000);
@@ -134,6 +145,8 @@ export default function BudgetApp() {
       dbGet().then(result => {
         if (result && result.version > lastAppliedVersionRef.current) {
           lastAppliedVersionRef.current = result.version;
+          lsWrite(result.state);
+          lsWriteVersion(result.version);
           setState(result.state);
         }
       });
@@ -146,18 +159,17 @@ export default function BudgetApp() {
     };
   }, []);
 
-  // update() saves directly to DB — polls use setState directly so they never trigger saves.
-  // writeDirty() is synchronous so the state survives a refresh even if the PUT is still in-flight.
-  // clearDirty() runs only after DB confirms, so the next load will re-push if needed.
+  // update() writes to localStorage synchronously (survives refresh instantly),
+  // then fires dbPut. Polls call setState directly and never go through update().
   const update = (partial: Partial<BudgetState>) => {
     const next = { ...state, ...partial };
     setState(next);
-    writeDirty(next);
+    lsWrite(next); // synchronous — guaranteed before any refresh
     setSyncStatus('saving');
     dbPut(next).then(version => {
       if (version !== null) {
-        clearDirty();
         lastAppliedVersionRef.current = version;
+        lsWriteVersion(version); // record confirmed version so polls don't re-apply our own save
         setSyncStatus('saved');
       } else {
         setSyncStatus('error');
