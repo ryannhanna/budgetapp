@@ -51,6 +51,7 @@ export default function BudgetApp() {
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastLocalSaveRef = useRef<number>(0);
 
   // Load from DB first, fall back to localStorage
   useEffect(() => {
@@ -82,9 +83,24 @@ export default function BudgetApp() {
     }
     load();
 
-    // Re-fetch from DB when tab becomes visible (picks up changes from other devices)
+    // Poll DB every 10s to pick up changes from other devices
+    // Skip update if a local save happened in the last 3s (avoid overwriting in-progress edits)
+    const pollInterval = setInterval(() => {
+      if (Date.now() - lastLocalSaveRef.current < 3000) return;
+      fetch('/api/budget')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data) {
+            setState(data);
+            saveState(data);
+          }
+        })
+        .catch(() => {});
+    }, 10000);
+
+    // Also re-fetch when tab becomes visible
     function onVisibilityChange() {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && Date.now() - lastLocalSaveRef.current > 3000) {
         fetch('/api/budget')
           .then(res => res.ok ? res.json() : null)
           .then(data => {
@@ -97,13 +113,17 @@ export default function BudgetApp() {
       }
     }
     document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, []);
 
   // Persist on every change — localStorage immediately, DB debounced 1s
   useEffect(() => {
     if (!hydrated) return;
     saveState(state);
+    lastLocalSaveRef.current = Date.now();
     setSyncStatus('saving');
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
