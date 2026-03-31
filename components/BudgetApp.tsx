@@ -124,7 +124,7 @@ export default function BudgetApp() {
       {/* Header */}
       <header className="bg-gray-900 border-b border-gray-800 px-4 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-lg font-bold text-green-400">Budget App</h1>
+          <h1 className="text-lg font-bold text-green-400">Cashmap</h1>
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500">View:</span>
             <button
