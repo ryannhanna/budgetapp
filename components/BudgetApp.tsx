@@ -74,9 +74,8 @@ export default function BudgetApp() {
   const [state, setState] = useState<BudgetState>(DEFAULT_STATE);
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  const isSavingRef = useRef(false);
   const skipSaveRef = useRef(false);
-  const localEditSeqRef = useRef(0); // incremented on every local user edit
+  const lastLocalEditRef = useRef(0); // Date.now() of last local edit on this device
 
   function applyFromDb(data: BudgetState) {
     skipSaveRef.current = true;
@@ -90,22 +89,22 @@ export default function BudgetApp() {
       setHydrated(true);
     });
 
-    // Poll every 10s to pick up changes from other devices.
-    // Snapshot the edit sequence before the fetch — if it changed by the time
-    // the fetch returns, a local edit happened mid-flight and we discard the result.
+    // Poll every 10s. Skip if a local edit happened in the last 10s —
+    // this ensures the poll never applies stale pre-edit DB data.
+    // After 10s of no edits, the PUT has long since committed and the DB is current.
     const poll = setInterval(async () => {
-      if (isSavingRef.current) return;
-      const seq = localEditSeqRef.current;
+      if (Date.now() - lastLocalEditRef.current < 10_000) return;
       const data = await dbGet();
-      if (data && localEditSeqRef.current === seq) applyFromDb(data);
+      if (data && Date.now() - lastLocalEditRef.current >= 10_000) applyFromDb(data);
     }, 10_000);
 
-    // Re-fetch when tab becomes visible
+    // Re-fetch when tab becomes visible (same guard)
     function onVisible() {
-      if (document.visibilityState === 'visible' && !isSavingRef.current) {
-        const seq = localEditSeqRef.current;
-        dbGet().then(data => { if (data && localEditSeqRef.current === seq) applyFromDb(data); });
-      }
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastLocalEditRef.current < 10_000) return;
+      dbGet().then(data => {
+        if (data && Date.now() - lastLocalEditRef.current >= 10_000) applyFromDb(data);
+      });
     }
     document.addEventListener('visibilitychange', onVisible);
 
@@ -123,11 +122,9 @@ export default function BudgetApp() {
       setSyncStatus('saved');
       return;
     }
-    localEditSeqRef.current++;
-    isSavingRef.current = true;
+    lastLocalEditRef.current = Date.now();
     setSyncStatus('saving');
     dbPut(state).then(ok => {
-      isSavingRef.current = false;
       setSyncStatus(ok ? 'saved' : 'error');
     });
   }, [state, hydrated]);
