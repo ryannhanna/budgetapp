@@ -75,8 +75,10 @@ export default function BudgetApp() {
         }
       } catch { /* DB unavailable */ }
 
-      // Prefer localStorage unless DB is clearly newer (>60s), meaning another device saved.
-      const dbIsNewer = dbState !== null && (dbUpdatedAt - localSavedAt) > 60_000;
+      // Prefer localStorage unless DB is clearly newer (>5s), meaning another device saved.
+      // 5s is enough time for our own DB write to complete; anything older means
+      // a different device made the change.
+      const dbIsNewer = dbState !== null && (dbUpdatedAt - localSavedAt) > 5_000;
 
       if (dbIsNewer) {
         isRemoteUpdateRef.current = true;
@@ -102,28 +104,34 @@ export default function BudgetApp() {
     }
     load();
 
-    // Re-fetch when tab becomes visible to pick up changes from other devices.
-    // Skip if we have an in-flight local save to avoid overwriting unsaved changes.
-    function onVisibilityChange() {
-      if (document.visibilityState === 'visible' && !hasPendingLocalChangesRef.current) {
-        fetch('/api/budget', { cache: 'no-store' })
-          .then(res => res.ok ? res.json() : null)
-          .then(body => {
-            if (body) {
-              const dbState: BudgetState = body.state ?? body;
-              const dbUpdatedAt: number = body.updatedAt ? new Date(body.updatedAt).getTime() : 0;
-              if ((dbUpdatedAt - loadSavedAt()) > 60_000) {
-                isRemoteUpdateRef.current = true;
-                setState(dbState);
-                saveState(dbState, dbUpdatedAt);
-              }
+    // Poll every 15s and re-fetch on tab focus to pick up changes from other devices.
+    // Only apply if DB is >5s newer than localStorage (avoids overwriting unsaved local changes).
+    function syncFromDb() {
+      if (hasPendingLocalChangesRef.current) return;
+      fetch('/api/budget', { cache: 'no-store' })
+        .then(res => res.ok ? res.json() : null)
+        .then(body => {
+          if (body) {
+            const remote: BudgetState = body.state ?? body;
+            const remoteAt: number = body.updatedAt ? new Date(body.updatedAt).getTime() : 0;
+            if ((remoteAt - loadSavedAt()) > 5_000) {
+              isRemoteUpdateRef.current = true;
+              setState(remote);
+              saveState(remote, remoteAt);
             }
-          })
-          .catch(() => {});
-      }
+          }
+        })
+        .catch(() => {});
+    }
+
+    const pollInterval = setInterval(syncFromDb, 15_000);
+
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible') syncFromDb();
     }
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
+      clearInterval(pollInterval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, []);
