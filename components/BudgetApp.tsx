@@ -128,6 +128,7 @@ export default function BudgetApp() {
   useEffect(() => {
     if (!hydrated) return;
     saveState(state);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     if (isRemoteUpdateRef.current) {
       isRemoteUpdateRef.current = false;
       setSyncStatus('saved');
@@ -135,7 +136,6 @@ export default function BudgetApp() {
     }
     lastLocalSaveRef.current = Date.now();
     setSyncStatus('saving');
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       fetch('/api/budget', {
         method: 'PUT',
