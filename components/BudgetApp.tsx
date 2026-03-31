@@ -52,6 +52,7 @@ export default function BudgetApp() {
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalSaveRef = useRef<number>(0);
+  const isRemoteUpdateRef = useRef(false);
 
   // Load from DB first, fall back to localStorage
   useEffect(() => {
@@ -61,6 +62,7 @@ export default function BudgetApp() {
         if (res.ok) {
           const data = await res.json();
           if (data) {
+            isRemoteUpdateRef.current = true;
             setState(data);
             saveState(data);
             setHydrated(true);
@@ -91,6 +93,7 @@ export default function BudgetApp() {
         .then(res => res.ok ? res.json() : null)
         .then(data => {
           if (data) {
+            isRemoteUpdateRef.current = true;
             setState(data);
             saveState(data);
           }
@@ -105,6 +108,7 @@ export default function BudgetApp() {
           .then(res => res.ok ? res.json() : null)
           .then(data => {
             if (data) {
+              isRemoteUpdateRef.current = true;
               setState(data);
               saveState(data);
             }
@@ -120,9 +124,15 @@ export default function BudgetApp() {
   }, []);
 
   // Persist on every change — localStorage immediately, DB debounced 1s
+  // Skip DB write if this state change came from a remote poll (not a local edit)
   useEffect(() => {
     if (!hydrated) return;
     saveState(state);
+    if (isRemoteUpdateRef.current) {
+      isRemoteUpdateRef.current = false;
+      setSyncStatus('saved');
+      return;
+    }
     lastLocalSaveRef.current = Date.now();
     setSyncStatus('saving');
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
