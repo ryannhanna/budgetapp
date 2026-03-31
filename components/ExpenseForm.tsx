@@ -7,7 +7,7 @@ import { X, Check } from 'lucide-react';
 const CATEGORIES: ExpenseCategory[] = [
   'Housing', 'Transportation', 'Food & Groceries', 'Healthcare',
   'Entertainment', 'Utilities', 'Subscriptions', 'Clothing',
-  'Personal Care', 'Education', 'Debt Payment', 'Savings', 'Other',
+  'Personal Care', 'Education', 'Savings', 'Other',
 ];
 const FREQUENCIES: ExpenseFrequency[] = ['weekly', 'bi-weekly', 'monthly', 'annual'];
 const FREQ_LABELS: Record<ExpenseFrequency, string> = {

@@ -27,11 +27,6 @@ export default function Charts({ state }: ChartsProps) {
     const amount = normalize(e.amount, e.frequency);
     categoryTotals[e.category] = (categoryTotals[e.category] ?? 0) + amount;
   }
-  // Add debt minimums to "Debt Payment"
-  const debtTotal = getTotalDebtMinimums(debts) * (viewMode === 'bi-weekly' ? 26 / 12 / (26 / 12) : 1);
-  if (debtTotal > 0) {
-    categoryTotals['Debt Payment'] = (categoryTotals['Debt Payment'] ?? 0) + debtTotal;
-  }
   const pieData = Object.entries(categoryTotals)
     .filter(([, v]) => v > 0)
     .map(([name, value]) => ({ name, value: Math.round(value) }))

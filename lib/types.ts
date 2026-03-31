@@ -15,7 +15,6 @@ export type ExpenseCategory =
   | 'Clothing'
   | 'Personal Care'
   | 'Education'
-  | 'Debt Payment'
   | 'Savings'
   | 'Other';
 
@@ -30,7 +29,6 @@ export const CATEGORY_COLORS: Record<ExpenseCategory, string> = {
   Clothing: '#14b8a6',
   'Personal Care': '#f43f5e',
   Education: '#6366f1',
-  'Debt Payment': '#f59e0b',
   Savings: '#10b981',
   Other: '#6b7280',
 };
