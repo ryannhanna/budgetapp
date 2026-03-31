@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { BudgetState, Debt, Expense, IncomeStream, SavingsGoal, WeekEntry } from '@/lib/types';
-import { loadState, saveState } from '@/lib/storage';
+import { loadSavedAt, loadState, saveState } from '@/lib/storage';
 import NavTabs from './NavTabs';
 import Dashboard from './Dashboard';
 import IncomeSetup from './IncomeSetup';
@@ -53,33 +53,50 @@ export default function BudgetApp() {
   const hasPendingLocalChangesRef = useRef(false);
   const isRemoteUpdateRef = useRef(false);
 
-  // Load from DB first, fall back to localStorage
+  // Load state: fetch DB and localStorage, use whichever is newer.
+  // localStorage is stamped with a client timestamp on every save, so it always
+  // reflects unsaved-to-DB changes (e.g. refresh before PUT completed).
+  // If DB is more than 60s newer than localStorage, DB wins (change from another device).
   useEffect(() => {
     async function load() {
+      const localState = loadState();
+      const localSavedAt = loadSavedAt();
+
+      let dbState: BudgetState | null = null;
+      let dbUpdatedAt = 0;
       try {
         const res = await fetch('/api/budget', { cache: 'no-store' });
         if (res.ok) {
-          const data = await res.json();
-          if (data) {
-            isRemoteUpdateRef.current = true;
-            setState(data);
-            saveState(data);
-            setHydrated(true);
-            return;
+          const body = await res.json();
+          if (body) {
+            dbState = body.state ?? null;
+            dbUpdatedAt = body.updatedAt ? new Date(body.updatedAt).getTime() : 0;
           }
         }
-      } catch {
-        // API unavailable — fall through to localStorage
-      }
-      const saved = loadState();
-      if (saved) {
-        setState(saved);
-        fetch('/api/budget', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(saved),
-          keepalive: true,
-        }).catch(() => {});
+      } catch { /* DB unavailable */ }
+
+      // Prefer localStorage unless DB is clearly newer (>60s), meaning another device saved.
+      const dbIsNewer = dbState !== null && (dbUpdatedAt - localSavedAt) > 60_000;
+
+      if (dbIsNewer) {
+        isRemoteUpdateRef.current = true;
+        setState(dbState!);
+        saveState(dbState!, dbUpdatedAt);
+      } else if (localState) {
+        setState(localState);
+        // Sync local → DB if DB is missing or stale
+        if (!dbState || localSavedAt > dbUpdatedAt) {
+          fetch('/api/budget', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(localState),
+            keepalive: true,
+          }).catch(() => {});
+        }
+      } else if (dbState) {
+        isRemoteUpdateRef.current = true;
+        setState(dbState);
+        saveState(dbState, dbUpdatedAt || Date.now());
       }
       setHydrated(true);
     }
@@ -91,11 +108,15 @@ export default function BudgetApp() {
       if (document.visibilityState === 'visible' && !hasPendingLocalChangesRef.current) {
         fetch('/api/budget', { cache: 'no-store' })
           .then(res => res.ok ? res.json() : null)
-          .then(data => {
-            if (data) {
-              isRemoteUpdateRef.current = true;
-              setState(data);
-              saveState(data);
+          .then(body => {
+            if (body) {
+              const dbState: BudgetState = body.state ?? body;
+              const dbUpdatedAt: number = body.updatedAt ? new Date(body.updatedAt).getTime() : 0;
+              if ((dbUpdatedAt - loadSavedAt()) > 60_000) {
+                isRemoteUpdateRef.current = true;
+                setState(dbState);
+                saveState(dbState, dbUpdatedAt);
+              }
             }
           })
           .catch(() => {});

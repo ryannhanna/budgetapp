@@ -24,18 +24,23 @@ async function ensureTable() {
   initialized = true;
 }
 
+const NO_CACHE = { 'Cache-Control': 'no-store' };
+
 export async function GET() {
   try {
     await ensureTable();
     const sql = neon(process.env.DATABASE_URL!);
     const rows = await sql`
-      SELECT state FROM budget_state WHERE user_id = ${USER_ID}
+      SELECT state, updated_at FROM budget_state WHERE user_id = ${USER_ID}
     `;
-    if (rows.length === 0) return NextResponse.json(null);
-    return NextResponse.json(rows[0].state);
+    if (rows.length === 0) return NextResponse.json(null, { headers: NO_CACHE });
+    return NextResponse.json(
+      { state: rows[0].state, updatedAt: rows[0].updated_at },
+      { headers: NO_CACHE }
+    );
   } catch (e) {
     console.error('GET /api/budget:', e);
-    return NextResponse.json(null, { status: 500 });
+    return NextResponse.json(null, { status: 500, headers: NO_CACHE });
   }
 }
 
