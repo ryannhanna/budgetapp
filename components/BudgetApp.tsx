@@ -51,14 +51,20 @@ export default function BudgetApp() {
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastLocalSaveRef = useRef<number>(0);
+  const hasPendingLocalChangesRef = useRef(false);
   const isRemoteUpdateRef = useRef(false);
+  const stateRef = useRef<BudgetState>(DEFAULT_STATE);
+
+  // Keep stateRef current so event handlers always have the latest state
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   // Load from DB first, fall back to localStorage
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch('/api/budget');
+        const res = await fetch('/api/budget', { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           if (data) {
@@ -85,26 +91,25 @@ export default function BudgetApp() {
     }
     load();
 
-    // Poll DB every 10s to pick up changes from other devices
-    // Skip update if a local save happened in the last 3s (avoid overwriting in-progress edits)
-    const pollInterval = setInterval(() => {
-      if (Date.now() - lastLocalSaveRef.current < 3000) return;
-      fetch('/api/budget')
-        .then(res => res.ok ? res.json() : null)
-        .then(data => {
-          if (data) {
-            isRemoteUpdateRef.current = true;
-            setState(data);
-            saveState(data);
-          }
-        })
-        .catch(() => {});
-    }, 10000);
-
-    // Also re-fetch when tab becomes visible
+    // Flush pending save on hide (handles mobile screen-lock / tab-switch before debounce fires).
+    // Re-fetch on show so switching back to this tab picks up changes from other devices.
     function onVisibilityChange() {
-      if (document.visibilityState === 'visible' && Date.now() - lastLocalSaveRef.current > 3000) {
-        fetch('/api/budget')
+      if (document.visibilityState === 'hidden') {
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+          fetch('/api/budget', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(stateRef.current),
+            keepalive: true,
+          })
+            .then(res => { if (res.ok) hasPendingLocalChangesRef.current = false; })
+            .catch(() => {});
+        }
+      } else if (document.visibilityState === 'visible') {
+        if (hasPendingLocalChangesRef.current) return;
+        fetch('/api/budget', { cache: 'no-store' })
           .then(res => res.ok ? res.json() : null)
           .then(data => {
             if (data) {
@@ -118,13 +123,12 @@ export default function BudgetApp() {
     }
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
-      clearInterval(pollInterval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, []);
 
-  // Persist on every change — localStorage immediately, DB debounced 1s
-  // Skip DB write if this state change came from a remote poll (not a local edit)
+  // Persist on every change — localStorage immediately, DB debounced 300ms
+  // Skip DB write if this state change came from a remote fetch (not a local edit)
   useEffect(() => {
     if (!hydrated) return;
     saveState(state);
@@ -134,7 +138,7 @@ export default function BudgetApp() {
       setSyncStatus('saved');
       return;
     }
-    lastLocalSaveRef.current = Date.now();
+    hasPendingLocalChangesRef.current = true;
     setSyncStatus('saving');
     saveTimerRef.current = setTimeout(() => {
       fetch('/api/budget', {
@@ -143,6 +147,7 @@ export default function BudgetApp() {
         body: JSON.stringify(state),
       })
         .then(async res => {
+          hasPendingLocalChangesRef.current = false;
           if (res.ok) {
             setSyncStatus('saved');
           } else {
@@ -151,8 +156,11 @@ export default function BudgetApp() {
             setSyncStatus('error');
           }
         })
-        .catch(() => setSyncStatus('error'));
-    }, 1000);
+        .catch(() => {
+          hasPendingLocalChangesRef.current = false;
+          setSyncStatus('error');
+        });
+    }, 300);
   }, [state, hydrated]);
 
   const update = (partial: Partial<BudgetState>) =>
