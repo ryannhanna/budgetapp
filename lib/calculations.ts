@@ -104,16 +104,19 @@ export function calculatePayoffTimeline(
 
   // Deep clone debts for simulation
   const working = sorted.map(d => ({ ...d }));
-  let extra = extraPayment;
+  let extra = monthlyLeftover + extraPayment;
   const events: PayoffEvent[] = [];
   let totalInterestPaid = 0;
   const now = new Date();
   let month = 0;
   const MAX_MONTHS = 600;
+  // Track which working debts have already been recorded as paid off
+  const paidOff = new Array(working.length).fill(false);
 
   while (working.some(d => d.balance > 0) && month < MAX_MONTHS) {
     month++;
-    // Apply interest to each debt
+
+    // Apply interest to each active debt
     for (const d of working) {
       if (d.balance <= 0) continue;
       if (d.interestRate) {
@@ -124,33 +127,42 @@ export function calculatePayoffTimeline(
       }
     }
 
-    // Pay minimums on all but first
-    for (let i = 1; i < working.length; i++) {
-      const d = working[i];
+    // Pay minimums to ALL active debts
+    for (const d of working) {
       if (d.balance <= 0) continue;
-      const payment = Math.min(d.balance, d.minimumPayment);
-      d.balance -= payment;
+      d.balance -= Math.min(d.balance, d.minimumPayment);
     }
 
-    // Pay minimum + extra on first active debt
-    const first = working.find(d => d.balance > 0);
-    if (!first) break;
-    const payment = Math.min(first.balance, first.minimumPayment + extra);
-    first.balance -= payment;
+    // Cascade extra through debts in priority order within the same month
+    let remainingExtra = extra;
+    for (const d of working) {
+      if (d.balance <= 0 || remainingExtra <= 0) continue;
+      const payment = Math.min(d.balance, remainingExtra);
+      d.balance -= payment;
+      remainingExtra -= payment;
+    }
 
-    if (first.balance <= 0.01) {
-      first.balance = 0;
-      const date = new Date(now);
-      date.setMonth(date.getMonth() + month);
-      events.push({
-        month,
-        date,
-        debtName: first.name,
-        amountApplied: payment,
-        cascadeAdded: first.minimumPayment,
-        interestPaid: totalInterestPaid,
-      });
-      extra += first.minimumPayment;
+    // Clamp floating-point dust
+    for (const d of working) {
+      if (d.balance > 0 && d.balance < 0.01) d.balance = 0;
+    }
+
+    // Record newly paid-off debts and free their minimums into extra (cascade)
+    const date = new Date(now);
+    date.setMonth(date.getMonth() + month);
+    for (let i = 0; i < working.length; i++) {
+      if (!paidOff[i] && working[i].balance === 0) {
+        paidOff[i] = true;
+        events.push({
+          month,
+          date: new Date(date),
+          debtName: working[i].name,
+          amountApplied: working[i].minimumPayment,
+          cascadeAdded: working[i].minimumPayment,
+          interestPaid: totalInterestPaid,
+        });
+        extra += working[i].minimumPayment;
+      }
     }
   }
 

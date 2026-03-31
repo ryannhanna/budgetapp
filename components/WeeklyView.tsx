@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { BudgetState, WeekEntry } from '@/lib/types';
-import { getWeekRanges, getExpensesDueInWeek } from '@/lib/weekUtils';
+import { useState, useRef, useEffect } from 'react';
+import { BudgetState, Expense, Debt, WeekEntry } from '@/lib/types';
+import { getBiWeeklyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
 import { incomeToBiWeekly, fmt } from '@/lib/calculations';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -20,7 +20,17 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
   const [month, setMonth] = useState(now.getMonth());
 
   const { expenses, debts, incomeStreams, weekEntries } = state;
-  const weeks = getWeekRanges(year, month);
+
+  const currentPeriodRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    currentPeriodRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  // Anchor bi-weekly periods to the first bi-weekly stream with a known pay date
+  const anchorStream = incomeStreams.find(s => s.frequency === 'bi-weekly' && s.nextPayDate);
+  const anchor = anchorStream ? new Date(anchorStream.nextPayDate + 'T00:00:00') : undefined;
+
+  const periods = getBiWeeklyRanges(year, month, anchor);
 
   const prevMonth = () => {
     if (month === 0) { setMonth(11); setYear(y => y - 1); }
@@ -31,9 +41,16 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
     else setMonth(m => m + 1);
   };
 
-  // Estimate bi-weekly income per week (half of bi-weekly paycheck)
-  const biweeklyIncome = incomeStreams.reduce((s, stream) => s + incomeToBiWeekly(stream.amount, stream.frequency), 0);
-  const weeklyIncomeEst = biweeklyIncome / 2;
+  // Rent is split evenly across all periods in the month
+  const rentExpenses = expenses.filter(e => e.name.toLowerCase() === 'rent');
+  const nonRentExpenses = expenses.filter(e => e.name.toLowerCase() !== 'rent');
+
+  // Fallback income for streams without a known pay date
+  const fallbackPerPeriod = incomeStreams
+    .filter(s => !s.nextPayDate && s.frequency !== 'one-time')
+    .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
+
+  const hasFallback = fallbackPerPeriod > 0;
 
   let monthTotalIncome = 0;
   let monthTotalExpenses = 0;
@@ -45,35 +62,51 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
         <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors">
           <ChevronLeft size={20} />
         </button>
-        <h2 className="text-lg font-semibold text-gray-100">{MONTH_NAMES[month]} {year}</h2>
+        <div className="text-center">
+          <h2 className="text-lg font-semibold text-gray-100">{MONTH_NAMES[month]} {year}</h2>
+          {anchor && (
+            <p className="text-xs text-gray-500 mt-0.5">Periods anchored to pay schedule</p>
+          )}
+        </div>
         <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors">
           <ChevronRight size={20} />
         </button>
       </div>
 
-      {/* Week cards */}
-      {weeks.map(week => {
-        const entry = weekEntries.find(w => w.weekId === week.weekId) ?? {
-          weekId: week.weekId,
-          startDate: week.start.toISOString(),
-          endDate: week.end.toISOString(),
+      {/* Pay period cards */}
+      {periods.map((period, idx) => {
+        const entry = weekEntries.find(w => w.weekId === period.weekId) ?? {
+          weekId: period.weekId,
+          startDate: period.start.toISOString(),
+          endDate: period.end.toISOString(),
           paidExpenseIds: [],
           extraIncome: 0,
           notes: '',
         };
 
-        const due = getExpensesDueInWeek(expenses, debts, week.start, week.end);
-        const weekExpenses = due.reduce((s, { item, type }) => {
+        // Non-rent expenses + all debts show up in whichever period their due date falls
+        const due = getExpensesDueInWeek(nonRentExpenses, debts, period.start, period.end);
+
+        // Rent is split evenly: full rent / number of periods this month
+        const rentPerPeriod = rentExpenses.reduce((s, e) => s + e.amount, 0) / periods.length;
+
+        const dueCost = due.reduce((s, { item, type }) => {
           const amount = type === 'expense'
-            ? (item as import('@/lib/types').Expense).amount
-            : (item as import('@/lib/types').Debt).minimumPayment;
+            ? (item as Expense).amount
+            : (item as Debt).minimumPayment;
           return s + amount;
         }, 0);
-        const weekIncome = weeklyIncomeEst + entry.extraIncome;
-        const leftover = weekIncome - weekExpenses;
+        const periodExpenses = dueCost + rentPerPeriod;
 
-        monthTotalIncome += weekIncome;
-        monthTotalExpenses += weekExpenses;
+        // Exact income from streams that have a pay date
+        const exactIncome = incomeStreams
+          .filter(s => s.nextPayDate)
+          .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
+        const periodIncome = exactIncome + fallbackPerPeriod + entry.extraIncome;
+        const leftover = periodIncome - periodExpenses;
+
+        monthTotalIncome += periodIncome;
+        monthTotalExpenses += periodExpenses;
 
         const togglePaid = (itemId: string) => {
           const already = entry.paidExpenseIds.includes(itemId);
@@ -85,21 +118,24 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
           });
         };
 
-        const isCurrentWeek = now >= week.start && now <= week.end;
+        const isCurrentPeriod = now >= period.start && now <= period.end;
+        const hasItems = rentExpenses.length > 0 || due.length > 0;
 
         return (
           <div
-            key={week.weekId}
+            key={period.weekId}
+            ref={isCurrentPeriod ? currentPeriodRef : undefined}
             className={`bg-gray-900 rounded-2xl shadow-lg border overflow-hidden ${
-              isCurrentWeek ? 'border-green-700' : 'border-gray-800'
+              isCurrentPeriod ? 'border-green-700' : 'border-gray-800'
             }`}
           >
-            {/* Week header */}
+            {/* Period header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
               <div>
+                <p className="text-xs text-gray-500 mb-0.5">Pay Period {idx + 1}</p>
                 <h3 className="font-medium text-gray-100">
-                  {formatDate(week.start)} – {formatDate(week.end)}
-                  {isCurrentWeek && <span className="ml-2 text-xs text-green-400 font-medium">Current week</span>}
+                  {formatDate(period.start)} – {formatDate(period.end)}
+                  {isCurrentPeriod && <span className="ml-2 text-xs text-green-400 font-medium">Current</span>}
                 </h3>
               </div>
               <div className={`text-sm font-bold ${leftover >= 0 ? 'text-green-400' : 'text-red-400'}`}>
@@ -111,42 +147,68 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
             <div className="px-5 py-3 space-y-1.5">
               {/* Income row */}
               <div className="flex items-center justify-between text-sm py-1">
-                <span className="text-gray-400">Income (est.)</span>
-                <span className="text-green-400 font-medium">{fmt(weekIncome)}</span>
+                <span className="text-gray-400">
+                  Income{hasFallback ? ' (est.)' : ''}
+                </span>
+                <span className="text-green-400 font-medium">{fmt(periodIncome)}</span>
               </div>
 
-              {due.length === 0 ? (
-                <p className="text-xs text-gray-600 py-2">No payments due this week</p>
+              {!hasItems ? (
+                <p className="text-xs text-gray-600 py-2">No payments due this period</p>
               ) : (
-                due.map(({ item, type }) => {
-                  const amount = type === 'expense'
-                    ? (item as import('@/lib/types').Expense).amount
-                    : (item as import('@/lib/types').Debt).minimumPayment;
-                  const paid = entry.paidExpenseIds.includes(item.id);
-                  return (
-                    <div key={item.id} className="flex items-center justify-between text-sm py-1">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={paid}
-                          onChange={() => togglePaid(item.id)}
-                          className="w-4 h-4 rounded accent-green-500 cursor-pointer"
-                        />
-                        <span className={paid ? 'line-through text-gray-600' : 'text-gray-300'}>{item.name}</span>
-                        {type === 'debt' && (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">Debt</span>
-                        )}
+                <>
+                  {/* Rent — always shown, split evenly across periods */}
+                  {rentExpenses.map(e => {
+                    const split = e.amount / periods.length;
+                    const paid = entry.paidExpenseIds.includes(e.id);
+                    return (
+                      <div key={e.id} className="flex items-center justify-between text-sm py-1">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={paid}
+                            onChange={() => togglePaid(e.id)}
+                            className="w-4 h-4 rounded accent-green-500 cursor-pointer"
+                          />
+                          <span className={paid ? 'line-through text-gray-600' : 'text-gray-300'}>{e.name}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-400">÷{periods.length}</span>
+                        </div>
+                        <span className={paid ? 'text-gray-600 line-through' : 'text-gray-200'}>{fmt(split)}</span>
                       </div>
-                      <span className={paid ? 'text-gray-600 line-through' : 'text-gray-200'}>{fmt(amount)}</span>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+
+                  {/* All other expenses + debts — full amount in their due period */}
+                  {due.map(({ item, type }) => {
+                    const amount = type === 'expense'
+                      ? (item as Expense).amount
+                      : (item as Debt).minimumPayment;
+                    const paid = entry.paidExpenseIds.includes(item.id);
+                    return (
+                      <div key={item.id} className="flex items-center justify-between text-sm py-1">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={paid}
+                            onChange={() => togglePaid(item.id)}
+                            className="w-4 h-4 rounded accent-green-500 cursor-pointer"
+                          />
+                          <span className={paid ? 'line-through text-gray-600' : 'text-gray-300'}>{item.name}</span>
+                          {type === 'debt' && (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">Debt</span>
+                          )}
+                        </div>
+                        <span className={paid ? 'text-gray-600 line-through' : 'text-gray-200'}>{fmt(amount)}</span>
+                      </div>
+                    );
+                  })}
+                </>
               )}
             </div>
 
             {/* Footer */}
             <div className="flex items-center justify-between px-5 py-3 border-t border-gray-800 text-xs text-gray-500">
-              <span>Total expenses: {fmt(weekExpenses)}</span>
+              <span>Total expenses: {fmt(periodExpenses)}</span>
               <span className={leftover >= 0 ? 'text-green-400' : 'text-red-400'}>
                 Leftover: {leftover >= 0 ? '+' : ''}{fmt(leftover)}
               </span>

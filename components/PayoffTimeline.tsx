@@ -52,17 +52,31 @@ export default function PayoffTimeline({ state, onStrategyChange }: PayoffTimeli
         </div>
 
         {/* Extra payment input */}
-        <div className="flex items-center gap-3">
-          <label className="text-xs text-gray-400 whitespace-nowrap">Extra monthly payment:</label>
-          <input
-            type="number"
-            min="0"
-            step="10"
-            value={extraPayment || ''}
-            onChange={e => setExtraPayment(parseFloat(e.target.value) || 0)}
-            className="input w-32 text-sm"
-            placeholder="$0"
-          />
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-400 whitespace-nowrap">Extra above surplus:</label>
+            <input
+              type="number"
+              min="0"
+              step="10"
+              value={extraPayment || ''}
+              onChange={e => setExtraPayment(parseFloat(e.target.value) || 0)}
+              className="input w-32 text-sm"
+              placeholder="$0"
+            />
+            {extraPayment > 0 && (
+              <button
+                onClick={() => setExtraPayment(0)}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Reset to $0
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-gray-500">
+            Monthly surplus applied automatically: {fmt(monthlyLeftover)}
+            {extraPayment > 0 && <span className="text-green-500"> + {fmt(extraPayment)} extra = {fmt(monthlyLeftover + extraPayment)} total</span>}
+          </p>
         </div>
       </div>
 

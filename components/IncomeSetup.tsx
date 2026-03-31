@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { IncomeStream, PayFrequency, BudgetState } from '@/lib/types';
 import { incomeToBiWeekly, incomeToMonthly, getTotalIncome, fmt } from '@/lib/calculations';
-import { Plus, Pencil, Trash2, X, Check } from 'lucide-react';
+import { getNextPayDate } from '@/lib/weekUtils';
+import { Plus, Pencil, Trash2, X, Check, Calendar } from 'lucide-react';
 
 interface IncomeSetupProps {
   state: BudgetState;
@@ -21,7 +22,7 @@ const FREQ_LABELS: Record<PayFrequency, string> = {
   'one-time': 'One-time',
 };
 
-const EMPTY: Omit<IncomeStream, 'id'> = { name: '', amount: 0, frequency: 'bi-weekly' };
+const EMPTY: Omit<IncomeStream, 'id'> = { name: '', amount: 0, frequency: 'bi-weekly', nextPayDate: undefined };
 
 export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: IncomeSetupProps) {
   const { incomeStreams, viewMode } = state;
@@ -40,7 +41,7 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
   };
 
   const openEdit = (s: IncomeStream) => {
-    setForm({ name: s.name, amount: s.amount, frequency: s.frequency });
+    setForm({ name: s.name, amount: s.amount, frequency: s.frequency, nextPayDate: s.nextPayDate });
     setEditing(s);
     setErrors({});
     setShowForm(true);
@@ -116,6 +117,21 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
                 </div>
                 <p className="text-xl font-bold text-green-400 mb-1">{fmt(s.amount)}</p>
                 <p className="text-xs text-gray-400 mb-3">{FREQ_LABELS[s.frequency]}</p>
+                {s.nextPayDate && s.frequency !== 'one-time' && (() => {
+                  const next = getNextPayDate(s, new Date());
+                  return next ? (
+                    <div className="flex items-center gap-1.5 text-xs text-blue-400 mb-3">
+                      <Calendar size={11} />
+                      Next pay: {next.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </div>
+                  ) : null;
+                })()}
+                {s.nextPayDate && s.frequency === 'one-time' && (
+                  <div className="flex items-center gap-1.5 text-xs text-blue-400 mb-3">
+                    <Calendar size={11} />
+                    {new Date(s.nextPayDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
+                )}
                 <div className="border-t border-gray-800 pt-3 grid grid-cols-2 gap-2 text-xs text-gray-400">
                   <div>
                     <span className="block text-gray-500">Bi-weekly</span>
@@ -174,6 +190,17 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
                   ))}
                 </select>
               </Field>
+              <Field
+                label={form.frequency === 'one-time' ? 'Payment date' : 'Next pay date'}
+                hint={form.frequency !== 'one-time' ? 'Used to pin paychecks to the right week in Weekly View' : undefined}
+              >
+                <input
+                  type="date"
+                  className="input w-full"
+                  value={form.nextPayDate ?? ''}
+                  onChange={e => setForm(f => ({ ...f, nextPayDate: e.target.value || undefined }))}
+                />
+              </Field>
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowForm(false)} className="flex-1 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium transition-colors">
@@ -190,11 +217,12 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
   );
 }
 
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
+function Field({ label, error, hint, children }: { label: string; error?: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
       <label className="block text-xs text-gray-400 mb-1">{label}</label>
       {children}
+      {hint && <p className="text-gray-600 text-xs mt-1">{hint}</p>}
       {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
     </div>
   );
