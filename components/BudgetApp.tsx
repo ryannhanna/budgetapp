@@ -45,6 +45,21 @@ const DEFAULT_STATE: BudgetState = {
   activeTab: 'dashboard',
 };
 
+const DIRTY_KEY = 'budget-dirty';
+
+function writeDirty(state: BudgetState) {
+  try { localStorage.setItem(DIRTY_KEY, JSON.stringify(state)); } catch {}
+}
+function clearDirty() {
+  try { localStorage.removeItem(DIRTY_KEY); } catch {}
+}
+function readDirty(): BudgetState | null {
+  try {
+    const raw = localStorage.getItem(DIRTY_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
 async function dbGet(): Promise<{ state: BudgetState; version: number } | null> {
   try {
     const res = await fetch('/api/budget', { cache: 'no-store' });
@@ -81,13 +96,28 @@ export default function BudgetApp() {
 
   // Load from DB on mount
   useEffect(() => {
-    dbGet().then(result => {
+    async function load() {
+      // If there's dirty state (a local edit whose keepalive PUT may not have
+      // committed before the page was refreshed), push it to DB first.
+      const dirty = readDirty();
+      if (dirty) {
+        const version = await dbPut(dirty);
+        if (version !== null) {
+          clearDirty();
+          lastAppliedVersionRef.current = version;
+          setState(dirty);
+          setHydrated(true);
+          return;
+        }
+      }
+      const result = await dbGet();
       if (result) {
         lastAppliedVersionRef.current = result.version;
         setState(result.state);
       }
       setHydrated(true);
-    });
+    }
+    load();
 
     // Poll every 10s. Only apply if remoteVersion > lastAppliedVersion.
     const poll = setInterval(async () => {
@@ -117,12 +147,16 @@ export default function BudgetApp() {
   }, []);
 
   // update() saves directly to DB — polls use setState directly so they never trigger saves.
+  // writeDirty() is synchronous so the state survives a refresh even if the PUT is still in-flight.
+  // clearDirty() runs only after DB confirms, so the next load will re-push if needed.
   const update = (partial: Partial<BudgetState>) => {
     const next = { ...state, ...partial };
     setState(next);
+    writeDirty(next);
     setSyncStatus('saving');
     dbPut(next).then(version => {
       if (version !== null) {
+        clearDirty();
         lastAppliedVersionRef.current = version;
         setSyncStatus('saved');
       } else {
