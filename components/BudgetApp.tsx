@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { BudgetState, Debt, Expense, IncomeStream, SavingsGoal, WeekEntry } from '@/lib/types';
-import { loadLastVersion, loadState, saveLastVersion, saveState } from '@/lib/storage';
 import NavTabs from './NavTabs';
 import Dashboard from './Dashboard';
 import IncomeSetup from './IncomeSetup';
@@ -46,124 +45,74 @@ const DEFAULT_STATE: BudgetState = {
   activeTab: 'dashboard',
 };
 
-export default function BudgetApp() {
-  const [state, setState] = useState<BudgetState>(DEFAULT_STATE);
-  const [hydrated, setHydrated] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  const hasPendingLocalChangesRef = useRef(false);
-  const isRemoteUpdateRef = useRef(false);
+async function dbGet(): Promise<BudgetState | null> {
+  try {
+    const res = await fetch('/api/budget', { cache: 'no-store' });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body?.state ?? null;
+  } catch {
+    return null;
+  }
+}
 
-  useEffect(() => {
-    async function load() {
-      // Show localStorage immediately for a fast initial paint
-      const localState = loadState();
-      if (localState) {
-        isRemoteUpdateRef.current = true;
-        setState(localState);
-      }
-      setHydrated(true);
-
-      // Fetch DB — apply if its version is higher than what we last saw.
-      // Version is a server-side integer incremented on every save, so it's
-      // immune to clock skew between devices.
-      try {
-        const res = await fetch('/api/budget', { cache: 'no-store' });
-        if (!res.ok) return;
-        const body = await res.json();
-        if (!body) {
-          // DB empty — push localStorage up if we have it
-          if (localState) {
-            fetch('/api/budget', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(localState),
-              keepalive: true,
-            }).then(r => r.json()).then(r => { if (r.version != null) saveLastVersion(r.version); }).catch(() => {});
-          }
-          return;
-        }
-        const dbVersion: number = body.version ?? 0;
-        if (dbVersion > loadLastVersion()) {
-          isRemoteUpdateRef.current = true;
-          setState(body.state);
-          saveState(body.state);
-          saveLastVersion(dbVersion);
-        }
-      } catch { /* DB unavailable — localStorage already shown */ }
-    }
-    load();
-
-    // Poll every 10s and on tab focus to pick up changes from other devices.
-    // Only skipped when this device has a local save in-flight.
-    // Uses version number (not timestamps) so clock skew can't cause missed updates.
-    function syncFromDb() {
-      if (hasPendingLocalChangesRef.current) return;
-      fetch('/api/budget', { cache: 'no-store' })
-        .then(res => res.ok ? res.json() : null)
-        .then(body => {
-          if (!body) return;
-          const remoteVersion: number = body.version ?? 0;
-          if (remoteVersion > loadLastVersion()) {
-            isRemoteUpdateRef.current = true;
-            setState(body.state);
-            saveState(body.state);
-            saveLastVersion(remoteVersion);
-          }
-        })
-        .catch(() => {});
-    }
-
-    const pollInterval = setInterval(syncFromDb, 10_000);
-
-    function onVisibilityChange() {
-      if (document.visibilityState === 'visible') syncFromDb();
-    }
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => {
-      clearInterval(pollInterval);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, []);
-
-  // Persist on every change — localStorage immediately, DB immediately with keepalive.
-  // keepalive ensures the request completes even if the user refreshes mid-flight.
-  // Skip DB write if this state change came from a remote fetch (not a local edit).
-  // IMPORTANT: do NOT call saveState for remote updates — callers already stamped
-  // localStorage with the correct remote timestamp. Overwriting it with Date.now()
-  // would make localSavedAt look fresh and break the cross-device timestamp check.
-  useEffect(() => {
-    if (!hydrated) return;
-    if (isRemoteUpdateRef.current) {
-      isRemoteUpdateRef.current = false;
-      setSyncStatus('saved');
-      return;
-    }
-    saveState(state);
-    hasPendingLocalChangesRef.current = true;
-    setSyncStatus('saving');
-    fetch('/api/budget', {
+async function dbPut(state: BudgetState): Promise<boolean> {
+  try {
+    const res = await fetch('/api/budget', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(state),
       keepalive: true,
-    })
-      .then(async res => {
-        hasPendingLocalChangesRef.current = false;
-        const body = await res.json().catch(() => ({}));
-        if (res.ok) {
-          // Store the version the server assigned so polls from this device
-          // don't re-apply our own save (remoteVersion === lastKnownVersion).
-          if (body.version != null) saveLastVersion(body.version);
-          setSyncStatus('saved');
-        } else {
-          console.error('Sync error:', body.error);
-          setSyncStatus('error');
-        }
-      })
-      .catch(() => {
-        hasPendingLocalChangesRef.current = false;
-        setSyncStatus('error');
-      });
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export default function BudgetApp() {
+  const [state, setState] = useState<BudgetState>(DEFAULT_STATE);
+  const [hydrated, setHydrated] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const isSavingRef = useRef(false);
+
+  // Load from DB on mount
+  useEffect(() => {
+    dbGet().then(data => {
+      if (data) setState(data);
+      setHydrated(true);
+    });
+
+    // Poll every 10s to pick up changes from other devices
+    const poll = setInterval(async () => {
+      if (isSavingRef.current) return;
+      const data = await dbGet();
+      if (data) setState(data);
+    }, 10_000);
+
+    // Re-fetch when tab becomes visible
+    function onVisible() {
+      if (document.visibilityState === 'visible' && !isSavingRef.current) {
+        dbGet().then(data => { if (data) setState(data); });
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+
+  // Save every change to DB
+  useEffect(() => {
+    if (!hydrated) return;
+    isSavingRef.current = true;
+    setSyncStatus('saving');
+    dbPut(state).then(ok => {
+      isSavingRef.current = false;
+      setSyncStatus(ok ? 'saved' : 'error');
+    });
   }, [state, hydrated]);
 
   const update = (partial: Partial<BudgetState>) =>
