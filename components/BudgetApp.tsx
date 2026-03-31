@@ -93,13 +93,14 @@ export default function BudgetApp() {
     const poll = setInterval(async () => {
       if (isSavingRef.current) return;
       const data = await dbGet();
-      if (data) applyFromDb(data);
+      // Check again after the fetch — user may have made a change while it was in-flight
+      if (data && !isSavingRef.current) applyFromDb(data);
     }, 10_000);
 
     // Re-fetch when tab becomes visible
     function onVisible() {
       if (document.visibilityState === 'visible' && !isSavingRef.current) {
-        dbGet().then(data => { if (data) applyFromDb(data); });
+        dbGet().then(data => { if (data && !isSavingRef.current) applyFromDb(data); });
       }
     }
     document.addEventListener('visibilitychange', onVisible);
