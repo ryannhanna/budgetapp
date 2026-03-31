@@ -77,32 +77,24 @@ export default function BudgetApp() {
   const [state, setState] = useState<BudgetState>(DEFAULT_STATE);
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  const skipSaveRef = useRef(false);
-  // lastAppliedVersion tracks the DB version this device last wrote or read.
-  // Poll only applies remote state if remoteVersion > lastAppliedVersion,
-  // meaning another device saved. Our own saves update this ref so polls
-  // never re-apply our own writes.
   const lastAppliedVersionRef = useRef(-1);
-
-  function applyFromDb(state: BudgetState, version: number) {
-    lastAppliedVersionRef.current = version;
-    skipSaveRef.current = true;
-    setState(state);
-  }
 
   // Load from DB on mount
   useEffect(() => {
     dbGet().then(result => {
-      if (result) applyFromDb(result.state, result.version);
+      if (result) {
+        lastAppliedVersionRef.current = result.version;
+        setState(result.state);
+      }
       setHydrated(true);
     });
 
-    // Poll every 10s. Only apply if remoteVersion > lastAppliedVersion,
-    // meaning another device made a change we haven't seen yet.
+    // Poll every 10s. Only apply if remoteVersion > lastAppliedVersion.
     const poll = setInterval(async () => {
       const result = await dbGet();
       if (result && result.version > lastAppliedVersionRef.current) {
-        applyFromDb(result.state, result.version);
+        lastAppliedVersionRef.current = result.version;
+        setState(result.state);
       }
     }, 10_000);
 
@@ -111,7 +103,8 @@ export default function BudgetApp() {
       if (document.visibilityState !== 'visible') return;
       dbGet().then(result => {
         if (result && result.version > lastAppliedVersionRef.current) {
-          applyFromDb(result.state, result.version);
+          lastAppliedVersionRef.current = result.version;
+          setState(result.state);
         }
       });
     }
@@ -123,28 +116,20 @@ export default function BudgetApp() {
     };
   }, []);
 
-  // Save every user-driven change to DB. Skip when state came from DB (skipSaveRef).
-  useEffect(() => {
-    if (!hydrated) return;
-    if (skipSaveRef.current) {
-      skipSaveRef.current = false;
-      setSyncStatus('saved');
-      return;
-    }
+  // update() saves directly to DB — polls use setState directly so they never trigger saves.
+  const update = (partial: Partial<BudgetState>) => {
+    const next = { ...state, ...partial };
+    setState(next);
     setSyncStatus('saving');
-    dbPut(state).then(version => {
+    dbPut(next).then(version => {
       if (version !== null) {
-        // Store the version we just wrote so polls don't re-apply our own save.
         lastAppliedVersionRef.current = version;
         setSyncStatus('saved');
       } else {
         setSyncStatus('error');
       }
     });
-  }, [state, hydrated]);
-
-  const update = (partial: Partial<BudgetState>) =>
-    setState(prev => ({ ...prev, ...partial }));
+  };
 
   // --- Income ---
   const addIncome = (stream: Omit<IncomeStream, 'id'>) =>
