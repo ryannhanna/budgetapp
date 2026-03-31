@@ -14,12 +14,17 @@ async function ensureTable() {
       id         SERIAL PRIMARY KEY,
       user_id    TEXT NOT NULL,
       state      JSONB NOT NULL,
+      version    BIGINT NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `;
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS budget_state_user_id_idx
       ON budget_state (user_id)
+  `;
+  // Add version column if table already exists without it
+  await sql`
+    ALTER TABLE budget_state ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0
   `;
   initialized = true;
 }
@@ -31,11 +36,11 @@ export async function GET() {
     await ensureTable();
     const sql = neon(process.env.DATABASE_URL!);
     const rows = await sql`
-      SELECT state, updated_at FROM budget_state WHERE user_id = ${USER_ID}
+      SELECT state, version FROM budget_state WHERE user_id = ${USER_ID}
     `;
     if (rows.length === 0) return NextResponse.json(null, { headers: NO_CACHE });
     return NextResponse.json(
-      { state: rows[0].state, updatedAt: rows[0].updated_at },
+      { state: rows[0].state, version: Number(rows[0].version) },
       { headers: NO_CACHE }
     );
   } catch (e) {
@@ -49,13 +54,14 @@ export async function PUT(req: Request) {
     await ensureTable();
     const sql = neon(process.env.DATABASE_URL!);
     const state = await req.json();
-    await sql`
-      INSERT INTO budget_state (user_id, state, updated_at)
-      VALUES (${USER_ID}, ${JSON.stringify(state)}, NOW())
+    const rows = await sql`
+      INSERT INTO budget_state (user_id, state, version, updated_at)
+      VALUES (${USER_ID}, ${JSON.stringify(state)}, 1, NOW())
       ON CONFLICT (user_id)
-      DO UPDATE SET state = EXCLUDED.state, updated_at = NOW()
+      DO UPDATE SET state = EXCLUDED.state, version = budget_state.version + 1, updated_at = NOW()
+      RETURNING version
     `;
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, version: Number(rows[0].version) });
   } catch (e) {
     console.error('PUT /api/budget:', e);
     return NextResponse.json({ ok: false, error: String(e) }, { status: 500 });
