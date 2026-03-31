@@ -145,6 +145,7 @@ export default function BudgetApp() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(state),
+        keepalive: true,
       })
         .then(async res => {
           hasPendingLocalChangesRef.current = false;
