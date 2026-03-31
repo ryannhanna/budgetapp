@@ -53,80 +53,66 @@ export default function BudgetApp() {
   const hasPendingLocalChangesRef = useRef(false);
   const isRemoteUpdateRef = useRef(false);
 
-  // Load state: fetch DB and localStorage, use whichever is newer.
-  // localStorage is stamped with a client timestamp on every save, so it always
-  // reflects unsaved-to-DB changes (e.g. refresh before PUT completed).
-  // If DB is more than 60s newer than localStorage, DB wins (change from another device).
   useEffect(() => {
+    // On load: show localStorage immediately (instant paint), then fetch DB.
+    // If DB has a newer version (server updated_at > our localSavedAt), apply it.
+    // This handles: another device saved while we were away.
+    // hasPendingLocalChangesRef stays false here so the save effect skips DB write.
     async function load() {
       const localState = loadState();
       const localSavedAt = loadSavedAt();
 
-      let dbState: BudgetState | null = null;
-      let dbUpdatedAt = 0;
-      try {
-        const res = await fetch('/api/budget', { cache: 'no-store' });
-        if (res.ok) {
-          const body = await res.json();
-          if (body) {
-            dbState = body.state ?? null;
-            dbUpdatedAt = body.updatedAt ? new Date(body.updatedAt).getTime() : 0;
-          }
-        }
-      } catch { /* DB unavailable */ }
-
-      // Prefer localStorage unless DB is clearly newer (>5s), meaning another device saved.
-      // 5s is enough time for our own DB write to complete; anything older means
-      // a different device made the change.
-      const dbIsNewer = dbState !== null && (dbUpdatedAt - localSavedAt) > 5_000;
-
-      if (dbIsNewer) {
-        isRemoteUpdateRef.current = true;
-        setState(dbState!);
-        saveState(dbState!, dbUpdatedAt);
-      } else if (localState) {
-        // Mark as remote so save effect doesn't overwrite DB or reset localSavedAt
+      if (localState) {
         isRemoteUpdateRef.current = true;
         setState(localState);
-        // Sync local → DB only if DB is missing or genuinely stale
-        if (!dbState || localSavedAt > dbUpdatedAt) {
-          fetch('/api/budget', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(localState),
-            keepalive: true,
-          }).catch(() => {});
-        }
-      } else if (dbState) {
-        isRemoteUpdateRef.current = true;
-        setState(dbState);
-        saveState(dbState, dbUpdatedAt || Date.now());
       }
       setHydrated(true);
+
+      // Now fetch DB in the background and apply if it's newer.
+      try {
+        const res = await fetch('/api/budget', { cache: 'no-store' });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!body) return;
+        const dbState: BudgetState = body.state ?? body;
+        const dbUpdatedAt: number = body.updatedAt ? new Date(body.updatedAt).getTime() : 0;
+
+        if (dbUpdatedAt > localSavedAt) {
+          // DB is newer — another device saved, or first load
+          isRemoteUpdateRef.current = true;
+          setState(dbState);
+          saveState(dbState, dbUpdatedAt);
+        } else if (!localState) {
+          // No localStorage at all — use DB whatever its timestamp
+          isRemoteUpdateRef.current = true;
+          setState(dbState);
+          saveState(dbState, dbUpdatedAt);
+        }
+      } catch { /* DB unavailable — localStorage already shown */ }
     }
     load();
 
-    // Poll every 15s and re-fetch on tab focus to pick up changes from other devices.
-    // Only apply if DB is >5s newer than localStorage (avoids overwriting unsaved local changes).
+    // Poll every 10s and re-fetch on tab focus.
+    // Only skipped when this device has an in-flight local save (hasPendingLocalChangesRef).
+    // No timestamp threshold — any DB state newer than our localSavedAt wins.
     function syncFromDb() {
       if (hasPendingLocalChangesRef.current) return;
       fetch('/api/budget', { cache: 'no-store' })
         .then(res => res.ok ? res.json() : null)
         .then(body => {
-          if (body) {
-            const remote: BudgetState = body.state ?? body;
-            const remoteAt: number = body.updatedAt ? new Date(body.updatedAt).getTime() : 0;
-            if ((remoteAt - loadSavedAt()) > 5_000) {
-              isRemoteUpdateRef.current = true;
-              setState(remote);
-              saveState(remote, remoteAt);
-            }
+          if (!body) return;
+          const remote: BudgetState = body.state ?? body;
+          const remoteAt: number = body.updatedAt ? new Date(body.updatedAt).getTime() : 0;
+          if (remoteAt > loadSavedAt()) {
+            isRemoteUpdateRef.current = true;
+            setState(remote);
+            saveState(remote, remoteAt);
           }
         })
         .catch(() => {});
     }
 
-    const pollInterval = setInterval(syncFromDb, 15_000);
+    const pollInterval = setInterval(syncFromDb, 10_000);
 
     function onVisibilityChange() {
       if (document.visibilityState === 'visible') syncFromDb();
