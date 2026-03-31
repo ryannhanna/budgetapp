@@ -85,8 +85,10 @@ export default function BudgetApp() {
         setState(dbState!);
         saveState(dbState!, dbUpdatedAt);
       } else if (localState) {
+        // Mark as remote so save effect doesn't overwrite DB or reset localSavedAt
+        isRemoteUpdateRef.current = true;
         setState(localState);
-        // Sync local → DB if DB is missing or stale
+        // Sync local → DB only if DB is missing or genuinely stale
         if (!dbState || localSavedAt > dbUpdatedAt) {
           fetch('/api/budget', {
             method: 'PUT',
@@ -139,14 +141,17 @@ export default function BudgetApp() {
   // Persist on every change — localStorage immediately, DB immediately with keepalive.
   // keepalive ensures the request completes even if the user refreshes mid-flight.
   // Skip DB write if this state change came from a remote fetch (not a local edit).
+  // IMPORTANT: do NOT call saveState for remote updates — callers already stamped
+  // localStorage with the correct remote timestamp. Overwriting it with Date.now()
+  // would make localSavedAt look fresh and break the cross-device timestamp check.
   useEffect(() => {
     if (!hydrated) return;
-    saveState(state);
     if (isRemoteUpdateRef.current) {
       isRemoteUpdateRef.current = false;
       setSyncStatus('saved');
       return;
     }
+    saveState(state);
     hasPendingLocalChangesRef.current = true;
     setSyncStatus('saving');
     fetch('/api/budget', {
