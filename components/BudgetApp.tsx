@@ -61,7 +61,7 @@ export default function BudgetApp() {
           const data = await res.json();
           if (data) {
             setState(data);
-            saveState(data); // keep localStorage in sync
+            saveState(data);
             setHydrated(true);
             return;
           }
@@ -69,11 +69,9 @@ export default function BudgetApp() {
       } catch {
         // API unavailable — fall through to localStorage
       }
-      // Fall back to localStorage
       const saved = loadState();
       if (saved) {
         setState(saved);
-        // Migrate existing localStorage data up to DB
         fetch('/api/budget', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -83,6 +81,23 @@ export default function BudgetApp() {
       setHydrated(true);
     }
     load();
+
+    // Re-fetch from DB when tab becomes visible (picks up changes from other devices)
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        fetch('/api/budget')
+          .then(res => res.ok ? res.json() : null)
+          .then(data => {
+            if (data) {
+              setState(data);
+              saveState(data);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, []);
 
   // Persist on every change — localStorage immediately, DB debounced 1s
