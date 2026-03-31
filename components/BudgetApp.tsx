@@ -75,11 +75,17 @@ export default function BudgetApp() {
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const isSavingRef = useRef(false);
+  const skipSaveRef = useRef(false);
+
+  function applyFromDb(data: BudgetState) {
+    skipSaveRef.current = true;
+    setState(data);
+  }
 
   // Load from DB on mount
   useEffect(() => {
     dbGet().then(data => {
-      if (data) setState(data);
+      if (data) applyFromDb(data);
       setHydrated(true);
     });
 
@@ -87,13 +93,13 @@ export default function BudgetApp() {
     const poll = setInterval(async () => {
       if (isSavingRef.current) return;
       const data = await dbGet();
-      if (data) setState(data);
+      if (data) applyFromDb(data);
     }, 10_000);
 
     // Re-fetch when tab becomes visible
     function onVisible() {
       if (document.visibilityState === 'visible' && !isSavingRef.current) {
-        dbGet().then(data => { if (data) setState(data); });
+        dbGet().then(data => { if (data) applyFromDb(data); });
       }
     }
     document.addEventListener('visibilitychange', onVisible);
@@ -104,9 +110,14 @@ export default function BudgetApp() {
     };
   }, []);
 
-  // Save every change to DB
+  // Save every user-driven change to DB. Skip when state came from DB (skipSaveRef).
   useEffect(() => {
     if (!hydrated) return;
+    if (skipSaveRef.current) {
+      skipSaveRef.current = false;
+      setSyncStatus('saved');
+      return;
+    }
     isSavingRef.current = true;
     setSyncStatus('saving');
     dbPut(state).then(ok => {
