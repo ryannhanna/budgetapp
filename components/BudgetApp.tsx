@@ -45,18 +45,19 @@ const DEFAULT_STATE: BudgetState = {
   activeTab: 'dashboard',
 };
 
-async function dbGet(): Promise<BudgetState | null> {
+async function dbGet(): Promise<{ state: BudgetState; version: number } | null> {
   try {
     const res = await fetch('/api/budget', { cache: 'no-store' });
     if (!res.ok) return null;
     const body = await res.json();
-    return body?.state ?? null;
+    if (!body?.state) return null;
+    return { state: body.state, version: body.version ?? 0 };
   } catch {
     return null;
   }
 }
 
-async function dbPut(state: BudgetState): Promise<boolean> {
+async function dbPut(state: BudgetState): Promise<number | null> {
   try {
     const res = await fetch('/api/budget', {
       method: 'PUT',
@@ -64,9 +65,11 @@ async function dbPut(state: BudgetState): Promise<boolean> {
       body: JSON.stringify(state),
       keepalive: true,
     });
-    return res.ok;
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body.version ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -75,35 +78,41 @@ export default function BudgetApp() {
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const skipSaveRef = useRef(false);
-  const lastLocalEditRef = useRef(0); // Date.now() of last local edit on this device
+  // lastAppliedVersion tracks the DB version this device last wrote or read.
+  // Poll only applies remote state if remoteVersion > lastAppliedVersion,
+  // meaning another device saved. Our own saves update this ref so polls
+  // never re-apply our own writes.
+  const lastAppliedVersionRef = useRef(-1);
 
-  function applyFromDb(data: BudgetState) {
+  function applyFromDb(state: BudgetState, version: number) {
+    lastAppliedVersionRef.current = version;
     skipSaveRef.current = true;
-    setState(data);
+    setState(state);
   }
 
   // Load from DB on mount
   useEffect(() => {
-    dbGet().then(data => {
-      if (data) applyFromDb(data);
+    dbGet().then(result => {
+      if (result) applyFromDb(result.state, result.version);
       setHydrated(true);
     });
 
-    // Poll every 10s. Skip if a local edit happened in the last 10s —
-    // this ensures the poll never applies stale pre-edit DB data.
-    // After 10s of no edits, the PUT has long since committed and the DB is current.
+    // Poll every 10s. Only apply if remoteVersion > lastAppliedVersion,
+    // meaning another device made a change we haven't seen yet.
     const poll = setInterval(async () => {
-      if (Date.now() - lastLocalEditRef.current < 10_000) return;
-      const data = await dbGet();
-      if (data && Date.now() - lastLocalEditRef.current >= 10_000) applyFromDb(data);
+      const result = await dbGet();
+      if (result && result.version > lastAppliedVersionRef.current) {
+        applyFromDb(result.state, result.version);
+      }
     }, 10_000);
 
-    // Re-fetch when tab becomes visible (same guard)
+    // Re-fetch when tab becomes visible
     function onVisible() {
       if (document.visibilityState !== 'visible') return;
-      if (Date.now() - lastLocalEditRef.current < 10_000) return;
-      dbGet().then(data => {
-        if (data && Date.now() - lastLocalEditRef.current >= 10_000) applyFromDb(data);
+      dbGet().then(result => {
+        if (result && result.version > lastAppliedVersionRef.current) {
+          applyFromDb(result.state, result.version);
+        }
       });
     }
     document.addEventListener('visibilitychange', onVisible);
@@ -122,10 +131,15 @@ export default function BudgetApp() {
       setSyncStatus('saved');
       return;
     }
-    lastLocalEditRef.current = Date.now();
     setSyncStatus('saving');
-    dbPut(state).then(ok => {
-      setSyncStatus(ok ? 'saved' : 'error');
+    dbPut(state).then(version => {
+      if (version !== null) {
+        // Store the version we just wrote so polls don't re-apply our own save.
+        lastAppliedVersionRef.current = version;
+        setSyncStatus('saved');
+      } else {
+        setSyncStatus('error');
+      }
     });
   }, [state, hydrated]);
 
