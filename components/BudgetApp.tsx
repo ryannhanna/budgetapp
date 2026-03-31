@@ -49,6 +49,7 @@ const DEFAULT_STATE: BudgetState = {
 export default function BudgetApp() {
   const [state, setState] = useState<BudgetState>(DEFAULT_STATE);
   const [hydrated, setHydrated] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load from DB first, fall back to localStorage
@@ -88,13 +89,16 @@ export default function BudgetApp() {
   useEffect(() => {
     if (!hydrated) return;
     saveState(state);
+    setSyncStatus('saving');
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       fetch('/api/budget', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(state),
-      }).catch(() => {});
+      })
+        .then(res => setSyncStatus(res.ok ? 'saved' : 'error'))
+        .catch(() => setSyncStatus('error'));
     }, 1000);
   }, [state, hydrated]);
 
@@ -162,6 +166,16 @@ export default function BudgetApp() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <h1 className="text-lg font-bold text-green-400">Cashmap</h1>
           <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <div className={`w-2 h-2 rounded-full ${
+                syncStatus === 'saved' ? 'bg-green-500' :
+                syncStatus === 'saving' ? 'bg-yellow-400 animate-pulse' :
+                'bg-red-500'
+              }`} />
+              <span className={`text-xs ${syncStatus === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
+                {syncStatus === 'saved' ? 'Saved' : syncStatus === 'saving' ? 'Saving...' : 'Sync error'}
+              </span>
+            </div>
             <span className="text-xs text-gray-500">View:</span>
             <button
               onClick={() => update({ viewMode: 'bi-weekly' })}
