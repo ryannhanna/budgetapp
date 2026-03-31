@@ -50,15 +50,8 @@ export default function BudgetApp() {
   const [state, setState] = useState<BudgetState>(DEFAULT_STATE);
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPendingLocalChangesRef = useRef(false);
   const isRemoteUpdateRef = useRef(false);
-  const stateRef = useRef<BudgetState>(DEFAULT_STATE);
-
-  // Keep stateRef current so event handlers always have the latest state
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
 
   // Load from DB first, fall back to localStorage
   useEffect(() => {
@@ -85,30 +78,17 @@ export default function BudgetApp() {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(saved),
+          keepalive: true,
         }).catch(() => {});
       }
       setHydrated(true);
     }
     load();
 
-    // Flush pending save on hide (handles mobile screen-lock / tab-switch before debounce fires).
-    // Re-fetch on show so switching back to this tab picks up changes from other devices.
+    // Re-fetch when tab becomes visible to pick up changes from other devices.
+    // Skip if we have an in-flight local save to avoid overwriting unsaved changes.
     function onVisibilityChange() {
-      if (document.visibilityState === 'hidden') {
-        if (saveTimerRef.current) {
-          clearTimeout(saveTimerRef.current);
-          saveTimerRef.current = null;
-          fetch('/api/budget', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(stateRef.current),
-            keepalive: true,
-          })
-            .then(res => { if (res.ok) hasPendingLocalChangesRef.current = false; })
-            .catch(() => {});
-        }
-      } else if (document.visibilityState === 'visible') {
-        if (hasPendingLocalChangesRef.current) return;
+      if (document.visibilityState === 'visible' && !hasPendingLocalChangesRef.current) {
         fetch('/api/budget', { cache: 'no-store' })
           .then(res => res.ok ? res.json() : null)
           .then(data => {
@@ -127,12 +107,12 @@ export default function BudgetApp() {
     };
   }, []);
 
-  // Persist on every change — localStorage immediately, DB debounced 300ms
-  // Skip DB write if this state change came from a remote fetch (not a local edit)
+  // Persist on every change — localStorage immediately, DB immediately with keepalive.
+  // keepalive ensures the request completes even if the user refreshes mid-flight.
+  // Skip DB write if this state change came from a remote fetch (not a local edit).
   useEffect(() => {
     if (!hydrated) return;
     saveState(state);
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     if (isRemoteUpdateRef.current) {
       isRemoteUpdateRef.current = false;
       setSyncStatus('saved');
@@ -140,28 +120,26 @@ export default function BudgetApp() {
     }
     hasPendingLocalChangesRef.current = true;
     setSyncStatus('saving');
-    saveTimerRef.current = setTimeout(() => {
-      fetch('/api/budget', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(state),
-        keepalive: true,
-      })
-        .then(async res => {
-          hasPendingLocalChangesRef.current = false;
-          if (res.ok) {
-            setSyncStatus('saved');
-          } else {
-            const body = await res.json().catch(() => ({}));
-            console.error('Sync error:', body.error);
-            setSyncStatus('error');
-          }
-        })
-        .catch(() => {
-          hasPendingLocalChangesRef.current = false;
+    fetch('/api/budget', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
+      keepalive: true,
+    })
+      .then(async res => {
+        hasPendingLocalChangesRef.current = false;
+        if (res.ok) {
+          setSyncStatus('saved');
+        } else {
+          const body = await res.json().catch(() => ({}));
+          console.error('Sync error:', body.error);
           setSyncStatus('error');
-        });
-    }, 300);
+        }
+      })
+      .catch(() => {
+        hasPendingLocalChangesRef.current = false;
+        setSyncStatus('error');
+      });
   }, [state, hydrated]);
 
   const update = (partial: Partial<BudgetState>) =>
