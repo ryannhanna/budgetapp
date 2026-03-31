@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { BudgetState, Debt, Expense, IncomeStream, SavingsGoal, WeekEntry } from '@/lib/types';
 import { loadState, saveState } from '@/lib/storage';
@@ -49,17 +49,53 @@ const DEFAULT_STATE: BudgetState = {
 export default function BudgetApp() {
   const [state, setState] = useState<BudgetState>(DEFAULT_STATE);
   const [hydrated, setHydrated] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load from localStorage after mount (avoid SSR hydration mismatch)
+  // Load from DB first, fall back to localStorage
   useEffect(() => {
-    const saved = loadState();
-    if (saved) setState(saved);
-    setHydrated(true);
+    async function load() {
+      try {
+        const res = await fetch('/api/budget');
+        if (res.ok) {
+          const data = await res.json();
+          if (data) {
+            setState(data);
+            saveState(data); // keep localStorage in sync
+            setHydrated(true);
+            return;
+          }
+        }
+      } catch {
+        // API unavailable — fall through to localStorage
+      }
+      // Fall back to localStorage
+      const saved = loadState();
+      if (saved) {
+        setState(saved);
+        // Migrate existing localStorage data up to DB
+        fetch('/api/budget', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(saved),
+        }).catch(() => {});
+      }
+      setHydrated(true);
+    }
+    load();
   }, []);
 
-  // Persist on every change
+  // Persist on every change — localStorage immediately, DB debounced 1s
   useEffect(() => {
-    if (hydrated) saveState(state);
+    if (!hydrated) return;
+    saveState(state);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      fetch('/api/budget', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state),
+      }).catch(() => {});
+    }, 1000);
   }, [state, hydrated]);
 
   const update = (partial: Partial<BudgetState>) =>
