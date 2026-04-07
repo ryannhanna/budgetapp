@@ -7,7 +7,7 @@ const TABS = [
   { id: 'income', label: 'Income', icon: TrendingUp },
   { id: 'expenses', label: 'Expenses', icon: Receipt },
   { id: 'debts', label: 'Debts', icon: CreditCard },
-  { id: 'weekly', label: 'Bi-weekly', icon: CalendarDays },
+  { id: 'weekly', label: 'Pay Period', icon: CalendarDays },
   { id: 'savings', label: 'Savings', icon: PiggyBank },
 ];
 

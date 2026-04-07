@@ -3,8 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { BudgetState, Expense, Debt, WeekEntry } from '@/lib/types';
 import { getBiWeeklyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
-import { incomeToBiWeekly, fmt } from '@/lib/calculations';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { incomeToBiWeekly, fmt, sortByStrategy } from '@/lib/calculations';
+import { ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
 
 interface WeeklyViewProps {
   state: BudgetState;
@@ -213,6 +213,53 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
                 Leftover: {leftover >= 0 ? '+' : ''}{fmt(leftover)}
               </span>
             </div>
+
+            {/* Surplus debt suggestion */}
+            {leftover > 0 && (() => {
+              const sorted = sortByStrategy(debts, state.payoffStrategy);
+              if (sorted.length === 0) return null;
+
+              // Distribute surplus across debts in priority order
+              const suggestions: { debt: typeof sorted[0]; amount: number; paysOff: boolean }[] = [];
+              let remaining = leftover;
+              for (const debt of sorted) {
+                if (remaining <= 0) break;
+                const amount = Math.min(remaining, debt.balance);
+                suggestions.push({ debt, amount, paysOff: debt.balance <= remaining });
+                remaining -= amount;
+              }
+
+              return (
+                <div className="px-5 pb-4">
+                  <div className="px-4 py-3 rounded-xl bg-emerald-950/50 border border-emerald-800/30">
+                    <p className="text-emerald-400 font-semibold text-xs mb-2 flex items-center gap-1.5">
+                      <Lightbulb size={12} />
+                      Extra Payment Suggestion — {state.payoffStrategy} strategy
+                    </p>
+                    <div className="space-y-1">
+                      {suggestions.map(({ debt, amount, paysOff }) => (
+                        <div key={debt.id} className="flex items-center justify-between text-sm">
+                          <span className="text-gray-300">
+                            {paysOff
+                              ? <span className="text-emerald-400">Pay off </span>
+                              : <span>Extra to </span>
+                            }
+                            <span className="font-medium text-gray-100">{debt.name}</span>
+                            {paysOff && <span className="text-xs text-gray-500 ml-1">(balance: {fmt(debt.balance)})</span>}
+                          </span>
+                          <span className="text-emerald-400 font-semibold">{fmt(amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {remaining > 0 && (
+                      <p className="text-xs text-gray-500 mt-2">
+                        Remaining {fmt(remaining)} goes to savings — all debts covered!
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         );
       })}
