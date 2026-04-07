@@ -55,6 +55,40 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
   let monthTotalIncome = 0;
   let monthTotalExpenses = 0;
 
+  // Pre-compute rolling simulated debt balances so each period sees the balance
+  // after prior periods' suggested extra payments have been applied.
+  const simBalsPerPeriod: Map<string, number>[] = [];
+  {
+    const rolling = new Map(
+      debts.filter(d => !d.isPaidOff).map(d => [d.id, d.balance])
+    );
+    for (const period of periods) {
+      simBalsPerPeriod.push(new Map(rolling));
+      const pEntry = weekEntries.find(w => w.weekId === period.weekId);
+      const paidIds = pEntry?.paidExpenseIds ?? [];
+      const due = getExpensesDueInWeek(nonRentExpenses, debts, period.start, period.end);
+      const rentPer = rentExpenses.reduce((s, e) => s + e.amount, 0) / periods.length;
+      const dueCost = due.reduce((s, { item, type }) =>
+        s + (type === 'expense' ? (item as Expense).amount : (item as Debt).minimumPayment), 0);
+      const exactInc = incomeStreams
+        .filter(s => s.nextPayDate)
+        .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
+      const pLeftover = (exactInc + fallbackPerPeriod + (pEntry?.extraIncome ?? 0)) - (dueCost + rentPer);
+      if (pLeftover > 0) {
+        const sorted = sortByStrategy(debts, state.payoffStrategy).filter(d => !paidIds.includes(d.id));
+        let rem = pLeftover;
+        for (const debt of sorted) {
+          if (rem <= 0) break;
+          const cur = rolling.get(debt.id) ?? 0;
+          if (cur <= 0) continue;
+          const pay = Math.min(rem, cur);
+          rolling.set(debt.id, cur - pay);
+          rem -= pay;
+        }
+      }
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Month selector */}
@@ -216,21 +250,24 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
 
             {/* Surplus debt suggestion */}
             {leftover > 0 && (() => {
-              // Exclude debts already checked off this period so the list stays current
+              const simBals = simBalsPerPeriod[idx];
+              // Exclude debts already checked off this period, or fully paid off in simulation
               const sorted = sortByStrategy(debts, state.payoffStrategy)
-                .filter(d => !entry.paidExpenseIds.includes(d.id));
+                .filter(d => !entry.paidExpenseIds.includes(d.id))
+                .filter(d => (simBals.get(d.id) ?? 0) > 0);
               if (sorted.length === 0) return null;
 
               // Show up to 3 debts in priority order
               const topThree = sorted.slice(0, 3);
 
-              // Distribute surplus via cascade; track how far it reaches
+              // Distribute surplus via cascade using simulated (rolling) balances
               let remaining = leftover;
               const rows = topThree.map(debt => {
-                const surplusAmount = remaining > 0 ? Math.min(remaining, debt.balance) : 0;
-                const paysOff = surplusAmount > 0 && debt.balance <= remaining;
+                const simBal = simBals.get(debt.id) ?? debt.balance;
+                const surplusAmount = remaining > 0 ? Math.min(remaining, simBal) : 0;
+                const paysOff = surplusAmount > 0 && simBal <= remaining;
                 if (surplusAmount > 0) remaining -= surplusAmount;
-                return { debt, surplusAmount, paysOff };
+                return { debt, simBal, surplusAmount, paysOff };
               });
 
               return (
@@ -241,7 +278,7 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
                       Extra Payment Suggestion — {state.payoffStrategy} strategy
                     </p>
                     <div className="space-y-1">
-                      {rows.map(({ debt, surplusAmount, paysOff }) =>
+                      {rows.map(({ debt, simBal, surplusAmount, paysOff }) =>
                         surplusAmount > 0 ? (
                           <div key={debt.id} className="flex items-center justify-between text-sm">
                             <span className="text-gray-300">
@@ -250,14 +287,14 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
                                 : <span>Extra to </span>
                               }
                               <span className="font-medium text-gray-100">{debt.name}</span>
-                              {paysOff && <span className="text-xs text-gray-500 ml-1">({fmt(debt.balance)} remaining)</span>}
+                              {paysOff && <span className="text-xs text-gray-500 ml-1">({fmt(simBal)} remaining)</span>}
                             </span>
                             <span className="text-emerald-400 font-semibold">{fmt(surplusAmount)}</span>
                           </div>
                         ) : (
                           <div key={debt.id} className="flex items-center justify-between text-sm">
                             <span className="text-gray-500">Next up: <span className="text-gray-400">{debt.name}</span></span>
-                            <span className="text-gray-600 text-xs">{fmt(debt.balance)} left</span>
+                            <span className="text-gray-600 text-xs">{fmt(simBal)} left</span>
                           </div>
                         )
                       )}
