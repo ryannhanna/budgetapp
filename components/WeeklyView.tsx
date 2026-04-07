@@ -216,18 +216,22 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
 
             {/* Surplus debt suggestion */}
             {leftover > 0 && (() => {
-              const sorted = sortByStrategy(debts, state.payoffStrategy);
+              // Exclude debts already checked off this period so the list stays current
+              const sorted = sortByStrategy(debts, state.payoffStrategy)
+                .filter(d => !entry.paidExpenseIds.includes(d.id));
               if (sorted.length === 0) return null;
 
-              // Distribute surplus across debts in priority order
-              const suggestions: { debt: typeof sorted[0]; amount: number; paysOff: boolean }[] = [];
+              // Show up to 3 debts in priority order
+              const topThree = sorted.slice(0, 3);
+
+              // Distribute surplus via cascade; track how far it reaches
               let remaining = leftover;
-              for (const debt of sorted) {
-                if (remaining <= 0) break;
-                const amount = Math.min(remaining, debt.balance);
-                suggestions.push({ debt, amount, paysOff: debt.balance <= remaining });
-                remaining -= amount;
-              }
+              const rows = topThree.map(debt => {
+                const surplusAmount = remaining > 0 ? Math.min(remaining, debt.balance) : 0;
+                const paysOff = surplusAmount > 0 && debt.balance <= remaining;
+                if (surplusAmount > 0) remaining -= surplusAmount;
+                return { debt, surplusAmount, paysOff };
+              });
 
               return (
                 <div className="px-5 pb-4">
@@ -237,19 +241,26 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
                       Extra Payment Suggestion — {state.payoffStrategy} strategy
                     </p>
                     <div className="space-y-1">
-                      {suggestions.map(({ debt, amount, paysOff }) => (
-                        <div key={debt.id} className="flex items-center justify-between text-sm">
-                          <span className="text-gray-300">
-                            {paysOff
-                              ? <span className="text-emerald-400">Pay off </span>
-                              : <span>Extra to </span>
-                            }
-                            <span className="font-medium text-gray-100">{debt.name}</span>
-                            {paysOff && <span className="text-xs text-gray-500 ml-1">(balance: {fmt(debt.balance)})</span>}
-                          </span>
-                          <span className="text-emerald-400 font-semibold">{fmt(amount)}</span>
-                        </div>
-                      ))}
+                      {rows.map(({ debt, surplusAmount, paysOff }) =>
+                        surplusAmount > 0 ? (
+                          <div key={debt.id} className="flex items-center justify-between text-sm">
+                            <span className="text-gray-300">
+                              {paysOff
+                                ? <span className="text-emerald-400">Pay off </span>
+                                : <span>Extra to </span>
+                              }
+                              <span className="font-medium text-gray-100">{debt.name}</span>
+                              {paysOff && <span className="text-xs text-gray-500 ml-1">({fmt(debt.balance)} remaining)</span>}
+                            </span>
+                            <span className="text-emerald-400 font-semibold">{fmt(surplusAmount)}</span>
+                          </div>
+                        ) : (
+                          <div key={debt.id} className="flex items-center justify-between text-sm">
+                            <span className="text-gray-500">Next up: <span className="text-gray-400">{debt.name}</span></span>
+                            <span className="text-gray-600 text-xs">{fmt(debt.balance)} left</span>
+                          </div>
+                        )
+                      )}
                     </div>
                     {remaining > 0 && (
                       <p className="text-xs text-gray-500 mt-2">
