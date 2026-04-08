@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import confetti from 'canvas-confetti';
 import { BudgetState, Debt, PayoffStrategy } from '@/lib/types';
 import { getTotalDebtMinimums, fmt } from '@/lib/calculations';
 import { Plus, Pencil, Trash2, CheckCircle2, Circle } from 'lucide-react';
@@ -109,16 +110,31 @@ export default function DebtTracker({ state, onAdd, onUpdate, onDelete, onToggle
   );
 }
 
+function fireConfetti() {
+  const end = Date.now() + 2000;
+  const colors = ['#22c55e', '#10b981', '#facc15', '#a78bfa', '#38bdf8'];
+  (function frame() {
+    confetti({ particleCount: 6, angle: 60, spread: 55, origin: { x: 0 }, colors });
+    confetti({ particleCount: 6, angle: 120, spread: 55, origin: { x: 1 }, colors });
+    if (Date.now() < end) requestAnimationFrame(frame);
+  })();
+}
+
 function DebtRow({ debt, onEdit, onDelete, onToggle }: {
   debt: Debt;
   onEdit: (d: Debt) => void;
   onDelete: (id: string) => void;
   onToggle: (id: string) => void;
 }) {
+  const handleToggle = () => {
+    if (!debt.isPaidOff) fireConfetti();
+    onToggle(debt.id);
+  };
+
   return (
     <div className={`flex items-center justify-between px-5 py-3 hover:bg-gray-800/30 transition-colors ${debt.isPaidOff ? 'opacity-50' : ''}`}>
       <div className="flex items-center gap-3">
-        <button onClick={() => onToggle(debt.id)} className="text-green-500 hover:text-green-400 transition-colors flex-shrink-0">
+        <button onClick={handleToggle} className="text-green-500 hover:text-green-400 transition-colors flex-shrink-0">
           {debt.isPaidOff ? <CheckCircle2 size={18} /> : <Circle size={18} className="text-gray-600" />}
         </button>
         <div>
