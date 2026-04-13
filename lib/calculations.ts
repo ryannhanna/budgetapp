@@ -47,8 +47,16 @@ export function getTotalIncome(streams: IncomeStream[], mode: 'bi-weekly' | 'mon
   }, 0);
 }
 
-export function getTotalExpenses(expenses: Expense[], mode: 'bi-weekly' | 'monthly'): number {
-  return expenses.reduce((sum, e) => {
+/** Returns false if the expense has an endDate that is before the given date. */
+export function isExpenseActive(expense: Expense, asOf: Date = new Date()): boolean {
+  if (!expense.endDate) return true;
+  const end = new Date(expense.endDate + 'T00:00:00');
+  const asOfDay = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  return asOfDay <= end;
+}
+
+export function getTotalExpenses(expenses: Expense[], mode: 'bi-weekly' | 'monthly', asOf: Date = new Date()): number {
+  return expenses.filter(e => isExpenseActive(e, asOf)).reduce((sum, e) => {
     const normalized = mode === 'bi-weekly'
       ? toBiWeekly(e.amount, e.frequency)
       : toMonthly(e.amount, e.frequency);

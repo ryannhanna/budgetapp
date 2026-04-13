@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { BudgetState, Expense, ExpenseCategory, CATEGORY_COLORS } from '@/lib/types';
-import { toBiWeekly, toMonthly, getTotalExpenses, fmt } from '@/lib/calculations';
+import { toBiWeekly, toMonthly, getTotalExpenses, isExpenseActive, fmt } from '@/lib/calculations';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import ExpenseForm from './ExpenseForm';
 
@@ -94,10 +94,20 @@ export default function ExpenseList({ state, onAdd, onUpdate, onDelete }: Expens
                 </button>
                 {!collapsed && (
                   <div className="border-t border-gray-800 divide-y divide-gray-800/50">
-                    {items.map(e => (
-                      <div key={e.id} className="flex items-center justify-between px-5 py-3 hover:bg-gray-800/30 transition-colors">
+                    {items.map(e => {
+                      const expired = !isExpenseActive(e);
+                      return (
+                      <div key={e.id} className={`flex items-center justify-between px-5 py-3 hover:bg-gray-800/30 transition-colors ${expired ? 'opacity-50' : ''}`}>
                         <div>
-                          <p className="text-sm text-gray-200">{e.name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className={`text-sm ${expired ? 'line-through text-gray-500' : 'text-gray-200'}`}>{e.name}</p>
+                            {e.endDate && expired && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500">Expired {e.endDate}</span>
+                            )}
+                            {e.endDate && !expired && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-900/30 text-yellow-500">Ends {e.endDate}</span>
+                            )}
+                          </div>
                           <p className="text-xs text-gray-500 mt-0.5">
                             {FREQ_LABELS[e.frequency]} · {e.type}
                             {e.dueDay ? ` · Due ${e.dueDay}${ordinal(e.dueDay)}` : ''}
@@ -119,7 +129,8 @@ export default function ExpenseList({ state, onAdd, onUpdate, onDelete }: Expens
                           </div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

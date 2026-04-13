@@ -1,5 +1,5 @@
 import { Debt, Expense, IncomeStream, PayFrequency } from './types';
-import { incomeToBiWeekly } from './calculations';
+import { incomeToBiWeekly, isExpenseActive } from './calculations';
 
 export interface WeekRange {
   weekId: string;
@@ -253,7 +253,7 @@ export function getUpcomingPayments(
   const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
   const items: Array<{ item: Expense | Debt; type: 'expense' | 'debt' }> = [
-    ...expenses.map(e => ({ item: e as Expense | Debt, type: 'expense' as const })),
+    ...expenses.filter(e => isExpenseActive(e, now)).map(e => ({ item: e as Expense | Debt, type: 'expense' as const })),
     ...debts.filter(d => !d.isPaidOff).map(d => ({ item: d as Expense | Debt, type: 'debt' as const })),
   ];
 
@@ -297,17 +297,17 @@ export function getBiWeeklyMonthlyLeftover(
   const anchor = anchorStream ? new Date(anchorStream.nextPayDate + 'T00:00:00') : undefined;
   const periods = getBiWeeklyRanges(year, month, anchor);
 
-  const rentExpenses = expenses.filter(e => e.name.toLowerCase() === 'rent');
-  const nonRentExpenses = expenses.filter(e => e.name.toLowerCase() !== 'rent');
-  const rentPerPeriod = rentExpenses.reduce((s, e) => s + e.amount, 0) / (periods.length || 1);
-
   const fallbackPerPeriod = incomeStreams
     .filter(s => !s.nextPayDate && s.frequency !== 'one-time')
     .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
 
   let total = 0;
   for (const period of periods) {
-    const due = getExpensesDueInWeek(nonRentExpenses, debts, period.start, period.end);
+    const activeExp = expenses.filter(e => isExpenseActive(e, period.start));
+    const periodRent = activeExp.filter(e => e.name.toLowerCase() === 'rent');
+    const periodNonRent = activeExp.filter(e => e.name.toLowerCase() !== 'rent');
+    const rentPer = periodRent.reduce((s, e) => s + e.amount, 0) / (periods.length || 1);
+    const due = getExpensesDueInWeek(periodNonRent, debts, period.start, period.end);
     const dueCost = due.reduce((s, { item, type }) =>
       s + (type === 'expense' ? (item as Expense).amount : (item as Debt).minimumPayment), 0);
 
@@ -315,7 +315,7 @@ export function getBiWeeklyMonthlyLeftover(
       .filter(s => s.nextPayDate)
       .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
 
-    total += (exactIncome + fallbackPerPeriod) - (dueCost + rentPerPeriod);
+    total += (exactIncome + fallbackPerPeriod) - (dueCost + rentPer);
   }
 
   return Math.max(0, total);

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { BudgetState, Expense, Debt, WeekEntry } from '@/lib/types';
 import { getBiWeeklyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
-import { incomeToBiWeekly, fmt, sortByStrategy } from '@/lib/calculations';
+import { incomeToBiWeekly, fmt, sortByStrategy, isExpenseActive } from '@/lib/calculations';
 import { ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
 
 interface WeeklyViewProps {
@@ -41,10 +41,6 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
     else setMonth(m => m + 1);
   };
 
-  // Rent is split evenly across all periods in the month
-  const rentExpenses = expenses.filter(e => e.name.toLowerCase() === 'rent');
-  const nonRentExpenses = expenses.filter(e => e.name.toLowerCase() !== 'rent');
-
   // Fallback income for streams without a known pay date
   const fallbackPerPeriod = incomeStreams
     .filter(s => !s.nextPayDate && s.frequency !== 'one-time')
@@ -66,8 +62,11 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
       simBalsPerPeriod.push(new Map(rolling));
       const pEntry = weekEntries.find(w => w.weekId === period.weekId);
       const paidIds = pEntry?.paidExpenseIds ?? [];
-      const due = getExpensesDueInWeek(nonRentExpenses, debts, period.start, period.end);
-      const rentPer = rentExpenses.reduce((s, e) => s + e.amount, 0) / periods.length;
+      const activeExp = expenses.filter(e => isExpenseActive(e, period.start));
+      const periodRentExp = activeExp.filter(e => e.name.toLowerCase() === 'rent');
+      const periodNonRentExp = activeExp.filter(e => e.name.toLowerCase() !== 'rent');
+      const due = getExpensesDueInWeek(periodNonRentExp, debts, period.start, period.end);
+      const rentPer = periodRentExp.reduce((s, e) => s + e.amount, 0) / periods.length;
       const dueCost = due.reduce((s, { item, type }) =>
         s + (type === 'expense' ? (item as Expense).amount : (item as Debt).minimumPayment), 0);
       const exactInc = incomeStreams
@@ -118,6 +117,11 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
           notes: '',
         };
 
+        // Filter expenses active for this period's start date
+        const activeExpenses = expenses.filter(e => isExpenseActive(e, period.start));
+        const rentExpenses = activeExpenses.filter(e => e.name.toLowerCase() === 'rent');
+        const nonRentExpenses = activeExpenses.filter(e => e.name.toLowerCase() !== 'rent');
+
         // Non-rent expenses + all debts show up in whichever period their due date falls
         const due = getExpensesDueInWeek(nonRentExpenses, debts, period.start, period.end);
 
@@ -153,7 +157,7 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
         };
 
         const isCurrentPeriod = now >= period.start && now <= period.end;
-        const hasItems = rentExpenses.length > 0 || due.length > 0;
+        const hasItems = rentExpenses.length > 0 || due.length > 0; // uses per-period rentExpenses
 
         return (
           <div
