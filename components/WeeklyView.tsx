@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { BudgetState, Expense, Debt, WeekEntry } from '@/lib/types';
 import { getBiWeeklyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
-import { incomeToBiWeekly, fmt, sortByStrategy, isExpenseActive } from '@/lib/calculations';
+import { incomeToBiWeekly, fmt, sortByStrategy, isExpenseActive, isIncomeActive } from '@/lib/calculations';
 import { ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
 
 interface WeeklyViewProps {
@@ -41,12 +41,8 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
     else setMonth(m => m + 1);
   };
 
-  // Fallback income for streams without a known pay date
-  const fallbackPerPeriod = incomeStreams
-    .filter(s => !s.nextPayDate && s.frequency !== 'one-time')
-    .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
-
-  const hasFallback = fallbackPerPeriod > 0;
+  // hasFallback: true if any stream without a pay date exists (used for "(est.)" label)
+  const hasFallback = incomeStreams.some(s => !s.nextPayDate && s.frequency !== 'one-time');
 
   let monthTotalIncome = 0;
   let monthTotalExpenses = 0;
@@ -72,7 +68,10 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
       const exactInc = incomeStreams
         .filter(s => s.nextPayDate)
         .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
-      const pLeftover = (exactInc + fallbackPerPeriod + (pEntry?.extraIncome ?? 0)) - (dueCost + rentPer);
+      const periodFallback = incomeStreams
+        .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
+        .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
+      const pLeftover = (exactInc + periodFallback + (pEntry?.extraIncome ?? 0)) - (dueCost + rentPer);
       if (pLeftover > 0) {
         const sorted = sortByStrategy(debts, state.payoffStrategy).filter(d => !paidIds.includes(d.id));
         let rem = pLeftover;
@@ -136,11 +135,14 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
         }, 0);
         const periodExpenses = dueCost + rentPerPeriod;
 
-        // Exact income from streams that have a pay date
+        // Exact income from streams that have a pay date (getIncomeInWeek gates on startDate internally)
         const exactIncome = incomeStreams
           .filter(s => s.nextPayDate)
           .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
-        const periodIncome = exactIncome + fallbackPerPeriod + entry.extraIncome;
+        const fallback = incomeStreams
+          .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
+          .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
+        const periodIncome = exactIncome + fallback + entry.extraIncome;
         const leftover = periodIncome - periodExpenses;
 
         monthTotalIncome += periodIncome;

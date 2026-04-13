@@ -1,5 +1,5 @@
 import { Debt, Expense, IncomeStream, PayFrequency } from './types';
-import { incomeToBiWeekly, isExpenseActive } from './calculations';
+import { incomeToBiWeekly, isExpenseActive, isIncomeActive } from './calculations';
 
 export interface WeekRange {
   weekId: string;
@@ -145,6 +145,7 @@ const FREQ_INTERVAL_DAYS: Partial<Record<PayFrequency, number>> = {
  */
 export function getIncomeInWeek(stream: IncomeStream, weekStart: Date, weekEnd: Date): number {
   if (!stream.nextPayDate) return 0;
+  if (!isIncomeActive(stream, weekStart)) return 0;
 
   const ref = new Date(stream.nextPayDate + 'T00:00:00'); // parse as local date
   const { frequency, amount } = stream;
@@ -297,12 +298,11 @@ export function getBiWeeklyMonthlyLeftover(
   const anchor = anchorStream ? new Date(anchorStream.nextPayDate + 'T00:00:00') : undefined;
   const periods = getBiWeeklyRanges(year, month, anchor);
 
-  const fallbackPerPeriod = incomeStreams
-    .filter(s => !s.nextPayDate && s.frequency !== 'one-time')
-    .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
-
   let total = 0;
   for (const period of periods) {
+    const fallbackPerPeriod = incomeStreams
+      .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
+      .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
     const activeExp = expenses.filter(e => isExpenseActive(e, period.start));
     const periodRent = activeExp.filter(e => e.name.toLowerCase() === 'rent');
     const periodNonRent = activeExp.filter(e => e.name.toLowerCase() !== 'rent');

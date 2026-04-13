@@ -38,8 +38,16 @@ export function incomeToMonthly(amount: number, freq: PayFrequency): number {
   }
 }
 
-export function getTotalIncome(streams: IncomeStream[], mode: 'bi-weekly' | 'monthly'): number {
-  return streams.reduce((sum, s) => {
+/** Returns false if the stream has a startDate that is after the given date. */
+export function isIncomeActive(stream: IncomeStream, asOf: Date = new Date()): boolean {
+  if (!stream.startDate) return true;
+  const start = new Date(stream.startDate + 'T00:00:00');
+  const asOfDay = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  return asOfDay >= start;
+}
+
+export function getTotalIncome(streams: IncomeStream[], mode: 'bi-weekly' | 'monthly', asOf: Date = new Date()): number {
+  return streams.filter(s => isIncomeActive(s, asOf)).reduce((sum, s) => {
     const normalized = mode === 'bi-weekly'
       ? incomeToBiWeekly(s.amount, s.frequency)
       : incomeToMonthly(s.amount, s.frequency);

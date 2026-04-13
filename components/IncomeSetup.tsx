@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { IncomeStream, PayFrequency, BudgetState } from '@/lib/types';
-import { incomeToBiWeekly, incomeToMonthly, getTotalIncome, fmt } from '@/lib/calculations';
+import { incomeToBiWeekly, incomeToMonthly, getTotalIncome, isIncomeActive, fmt } from '@/lib/calculations';
 import { getNextPayDate } from '@/lib/weekUtils';
 import { Plus, Pencil, Trash2, X, Check, Calendar } from 'lucide-react';
 
@@ -22,7 +22,7 @@ const FREQ_LABELS: Record<PayFrequency, string> = {
   'one-time': 'One-time',
 };
 
-const EMPTY: Omit<IncomeStream, 'id'> = { name: '', amount: 0, frequency: 'bi-weekly', nextPayDate: undefined };
+const EMPTY: Omit<IncomeStream, 'id'> = { name: '', amount: 0, frequency: 'bi-weekly', nextPayDate: undefined, startDate: undefined };
 
 export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: IncomeSetupProps) {
   const { incomeStreams, viewMode } = state;
@@ -41,7 +41,7 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
   };
 
   const openEdit = (s: IncomeStream) => {
-    setForm({ name: s.name, amount: s.amount, frequency: s.frequency, nextPayDate: s.nextPayDate });
+    setForm({ name: s.name, amount: s.amount, frequency: s.frequency, nextPayDate: s.nextPayDate, startDate: s.startDate });
     setEditing(s);
     setErrors({});
     setShowForm(true);
@@ -116,7 +116,14 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
                   </div>
                 </div>
                 <p className="text-xl font-bold text-green-400 mb-1">{fmt(s.amount)}</p>
-                <p className="text-xs text-gray-400 mb-3">{FREQ_LABELS[s.frequency]}</p>
+                <div className="flex items-center gap-2 mb-3">
+                  <p className="text-xs text-gray-400">{FREQ_LABELS[s.frequency]}</p>
+                  {s.startDate && !isIncomeActive(s) && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-900/30 text-yellow-500">
+                      Starts {s.startDate}
+                    </span>
+                  )}
+                </div>
                 {s.nextPayDate && s.frequency !== 'one-time' && (() => {
                   const next = getNextPayDate(s, new Date());
                   return next ? (
@@ -192,13 +199,24 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
               </Field>
               <Field
                 label={form.frequency === 'one-time' ? 'Payment date' : 'Next pay date'}
-                hint={form.frequency !== 'one-time' ? 'Used to pin paychecks to the right week in Weekly View' : undefined}
+                hint={form.frequency !== 'one-time' ? 'Used to pin paychecks to the right week in Pay Period view' : undefined}
               >
                 <input
                   type="date"
                   className="input w-full"
                   value={form.nextPayDate ?? ''}
                   onChange={e => setForm(f => ({ ...f, nextPayDate: e.target.value || undefined }))}
+                />
+              </Field>
+              <Field
+                label="Start date (optional)"
+                hint="Income is excluded from all calculations before this date"
+              >
+                <input
+                  type="date"
+                  className="input w-full"
+                  value={form.startDate ?? ''}
+                  onChange={e => setForm(f => ({ ...f, startDate: e.target.value || undefined }))}
                 />
               </Field>
             </div>
