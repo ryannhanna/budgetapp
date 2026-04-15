@@ -5,8 +5,9 @@ import {
   getTotalIncome, getTotalExpenses, getTotalDebtMinimums, fmt
 } from '@/lib/calculations';
 import { getUpcomingPayments } from '@/lib/weekUtils';
+import { exportToGoogleSheets } from '@/lib/exportToSheets';
 import Charts from './Charts';
-import { TrendingUp, TrendingDown, Wallet, CreditCard, Calendar } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, CreditCard, Calendar, Download } from 'lucide-react';
 
 interface DashboardProps {
   state: BudgetState;
@@ -35,6 +36,17 @@ export default function Dashboard({ state }: DashboardProps) {
 
   return (
     <div className="space-y-6">
+      {/* Export button */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => exportToGoogleSheets(state)}
+          className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+        >
+          <Download size={15} />
+          Export to Google Sheets
+        </button>
+      </div>
+
       {/* Status banner */}
       <div className={`rounded-2xl border p-4 ${statusBanner.bg}`}>
         <p className={`font-medium ${statusBanner.text}`}>{statusBanner.msg}</p>
