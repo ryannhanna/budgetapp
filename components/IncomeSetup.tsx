@@ -22,7 +22,7 @@ const FREQ_LABELS: Record<PayFrequency, string> = {
   'one-time': 'One-time',
 };
 
-const EMPTY: Omit<IncomeStream, 'id'> = { name: '', amount: 0, frequency: 'bi-weekly', nextPayDate: undefined, startDate: undefined };
+const EMPTY: Omit<IncomeStream, 'id'> = { name: '', amount: 0, frequency: 'bi-weekly', nextPayDate: undefined, startDate: undefined, endDate: undefined };
 
 export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: IncomeSetupProps) {
   const { incomeStreams, viewMode } = state;
@@ -41,7 +41,7 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
   };
 
   const openEdit = (s: IncomeStream) => {
-    setForm({ name: s.name, amount: s.amount, frequency: s.frequency, nextPayDate: s.nextPayDate, startDate: s.startDate });
+    setForm({ name: s.name, amount: s.amount, frequency: s.frequency, nextPayDate: s.nextPayDate, startDate: s.startDate, endDate: s.endDate });
     setEditing(s);
     setErrors({});
     setShowForm(true);
@@ -116,11 +116,21 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
                   </div>
                 </div>
                 <p className="text-xl font-bold text-green-400 mb-1">{fmt(s.amount)}</p>
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <p className="text-xs text-gray-400">{FREQ_LABELS[s.frequency]}</p>
-                  {s.startDate && !isIncomeActive(s) && (
+                  {s.startDate && !isIncomeActive(s) && !s.endDate && (
                     <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-900/30 text-yellow-500">
                       Starts {s.startDate}
+                    </span>
+                  )}
+                  {s.endDate && isIncomeActive(s) && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-900/30 text-yellow-500">
+                      Ends {s.endDate}
+                    </span>
+                  )}
+                  {s.endDate && !isIncomeActive(s) && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500">
+                      Expired {s.endDate}
                     </span>
                   )}
                 </div>
@@ -217,6 +227,17 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
                   className="input w-full"
                   value={form.startDate ?? ''}
                   onChange={e => setForm(f => ({ ...f, startDate: e.target.value || undefined }))}
+                />
+              </Field>
+              <Field
+                label="End date (optional)"
+                hint="Income is excluded from all calculations after this date"
+              >
+                <input
+                  type="date"
+                  className="input w-full"
+                  value={form.endDate ?? ''}
+                  onChange={e => setForm(f => ({ ...f, endDate: e.target.value || undefined }))}
                 />
               </Field>
             </div>

@@ -40,6 +40,7 @@ export interface IncomeStream {
   frequency: PayFrequency;
   nextPayDate?: string; // ISO date string (YYYY-MM-DD) of the next/last known pay date
   startDate?: string;  // ISO date string (YYYY-MM-DD); income excluded from all calculations before this date
+  endDate?: string;    // ISO date string (YYYY-MM-DD); income excluded from all calculations after this date
 }
 
 export interface Expense {

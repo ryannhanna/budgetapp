@@ -38,12 +38,18 @@ export function incomeToMonthly(amount: number, freq: PayFrequency): number {
   }
 }
 
-/** Returns false if the stream has a startDate that is after the given date. */
+/** Returns false if asOf is before the stream's startDate or after its endDate. */
 export function isIncomeActive(stream: IncomeStream, asOf: Date = new Date()): boolean {
-  if (!stream.startDate) return true;
-  const start = new Date(stream.startDate + 'T00:00:00');
   const asOfDay = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
-  return asOfDay >= start;
+  if (stream.startDate) {
+    const start = new Date(stream.startDate + 'T00:00:00');
+    if (asOfDay < start) return false;
+  }
+  if (stream.endDate) {
+    const end = new Date(stream.endDate + 'T00:00:00');
+    if (asOfDay > end) return false;
+  }
+  return true;
 }
 
 export function getTotalIncome(streams: IncomeStream[], mode: 'bi-weekly' | 'monthly', asOf: Date = new Date()): number {
