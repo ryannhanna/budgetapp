@@ -1,20 +1,32 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import confetti from 'canvas-confetti';
 import { BudgetState, Expense, Debt, WeekEntry } from '@/lib/types';
 import { getBiWeeklyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
 import { incomeToBiWeekly, fmt, sortByStrategy, isExpenseActive, isIncomeActive } from '@/lib/calculations';
-import { ChevronLeft, ChevronRight, Lightbulb } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lightbulb, CheckCircle2 } from 'lucide-react';
 
 interface WeeklyViewProps {
   state: BudgetState;
   onUpsertEntry: (entry: WeekEntry) => void;
+  onToggleDebtPaidOff: (id: string) => void;
 }
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
 
-export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
+function fireConfetti() {
+  const end = Date.now() + 2000;
+  const colors = ['#22c55e', '#10b981', '#facc15', '#a78bfa', '#38bdf8'];
+  (function frame() {
+    confetti({ particleCount: 6, angle: 60, spread: 55, origin: { x: 0 }, colors });
+    confetti({ particleCount: 6, angle: 120, spread: 55, origin: { x: 1 }, colors });
+    if (Date.now() < end) requestAnimationFrame(frame);
+  })();
+}
+
+export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }: WeeklyViewProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -283,11 +295,11 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
                       <Lightbulb size={12} />
                       Extra Payment Suggestion — {state.payoffStrategy} strategy
                     </p>
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       {rows.map(({ debt, simBal, surplusAmount, paysOff }) =>
                         surplusAmount > 0 ? (
-                          <div key={debt.id} className="flex items-center justify-between text-sm">
-                            <span className="text-gray-300">
+                          <div key={debt.id} className="flex items-center justify-between text-sm gap-3">
+                            <span className="text-gray-300 min-w-0">
                               {paysOff
                                 ? <span className="text-emerald-400">Pay off </span>
                                 : <span>Extra to </span>
@@ -295,7 +307,17 @@ export default function WeeklyView({ state, onUpsertEntry }: WeeklyViewProps) {
                               <span className="font-medium text-gray-100">{debt.name}</span>
                               {paysOff && <span className="text-xs text-gray-500 ml-1">({fmt(simBal)} remaining)</span>}
                             </span>
-                            <span className="text-emerald-400 font-semibold">{fmt(surplusAmount)}</span>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className="text-emerald-400 font-semibold">{fmt(surplusAmount)}</span>
+                              {paysOff && (
+                                <button
+                                  onClick={() => { fireConfetti(); onToggleDebtPaidOff(debt.id); }}
+                                  className="flex items-center gap-1 text-xs bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-2 py-1 font-medium transition-colors"
+                                >
+                                  <CheckCircle2 size={12} /> Paid
+                                </button>
+                              )}
+                            </div>
                           </div>
                         ) : (
                           <div key={debt.id} className="flex items-center justify-between text-sm">

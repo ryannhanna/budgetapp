@@ -309,6 +309,7 @@ export default function BudgetApp() {
           <WeeklyView
             {...sharedProps}
             onUpsertEntry={upsertWeekEntry}
+            onToggleDebtPaidOff={toggleDebtPaidOff}
           />
         )}
         {state.activeTab === 'savings' && (
