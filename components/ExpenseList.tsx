@@ -99,8 +99,11 @@ export default function ExpenseList({ state, onAdd, onUpdate, onDelete }: Expens
                       return (
                       <div key={e.id} className={`flex items-center justify-between px-5 py-3 hover:bg-gray-800/30 transition-colors ${expired ? 'opacity-50' : ''}`}>
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <p className={`text-sm ${expired ? 'line-through text-gray-500' : 'text-gray-200'}`}>{e.name}</p>
+                            {e.startDate && !expired && !isExpenseActive(e) && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-900/30 text-yellow-500">Starts {e.startDate}</span>
+                            )}
                             {e.endDate && expired && (
                               <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500">Expired {e.endDate}</span>
                             )}

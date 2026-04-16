@@ -52,7 +52,8 @@ export interface Expense {
   frequency: ExpenseFrequency;
   dueDay?: number;
   dueWeekday?: string;
-  endDate?: string; // ISO date (YYYY-MM-DD); expense is excluded from all calculations after this date
+  startDate?: string; // ISO date (YYYY-MM-DD); expense is excluded from all calculations before this date
+  endDate?: string;   // ISO date (YYYY-MM-DD); expense is excluded from all calculations after this date
 }
 
 export interface Debt {

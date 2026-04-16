@@ -61,12 +61,18 @@ export function getTotalIncome(streams: IncomeStream[], mode: 'bi-weekly' | 'mon
   }, 0);
 }
 
-/** Returns false if the expense has an endDate that is before the given date. */
+/** Returns false if asOf is before the expense's startDate or after its endDate. */
 export function isExpenseActive(expense: Expense, asOf: Date = new Date()): boolean {
-  if (!expense.endDate) return true;
-  const end = new Date(expense.endDate + 'T00:00:00');
   const asOfDay = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
-  return asOfDay <= end;
+  if (expense.startDate) {
+    const start = new Date(expense.startDate + 'T00:00:00');
+    if (asOfDay < start) return false;
+  }
+  if (expense.endDate) {
+    const end = new Date(expense.endDate + 'T00:00:00');
+    if (asOfDay > end) return false;
+  }
+  return true;
 }
 
 export function getTotalExpenses(expenses: Expense[], mode: 'bi-weekly' | 'monthly', asOf: Date = new Date()): number {

@@ -18,7 +18,7 @@ const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 type FormData = Omit<Expense, 'id'>;
 
 const EMPTY: FormData = {
-  name: '', amount: 0, category: 'Other', type: 'fixed', frequency: 'monthly', endDate: undefined,
+  name: '', amount: 0, category: 'Other', type: 'fixed', frequency: 'monthly', startDate: undefined, endDate: undefined,
 };
 
 interface ExpenseFormProps {
@@ -30,7 +30,7 @@ interface ExpenseFormProps {
 export default function ExpenseForm({ initial, onSave, onCancel }: ExpenseFormProps) {
   const [form, setForm] = useState<FormData>(
     initial
-      ? { name: initial.name, amount: initial.amount, category: initial.category, type: initial.type, frequency: initial.frequency, dueDay: initial.dueDay, dueWeekday: initial.dueWeekday, endDate: initial.endDate }
+      ? { name: initial.name, amount: initial.amount, category: initial.category, type: initial.type, frequency: initial.frequency, dueDay: initial.dueDay, dueWeekday: initial.dueWeekday, startDate: initial.startDate, endDate: initial.endDate }
       : EMPTY
   );
   const [errors, setErrors] = useState<{ name?: string; amount?: string }>({});
@@ -111,6 +111,14 @@ export default function ExpenseForm({ initial, onSave, onCancel }: ExpenseFormPr
             />
             {form.category}
           </div>
+          <Field label="Start date (optional — expense starts being calculated on this date)">
+            <input
+              type="date"
+              className="input w-full"
+              value={form.startDate ?? ''}
+              onChange={e => setForm(f => ({ ...f, startDate: e.target.value || undefined }))}
+            />
+          </Field>
           <Field label="End date (optional — expense stops after this date)">
             <input
               type="date"
