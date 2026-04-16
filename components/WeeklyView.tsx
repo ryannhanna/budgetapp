@@ -91,9 +91,10 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
           if (rem <= 0) break;
           const cur = rolling.get(debt.id) ?? 0;
           if (cur <= 0) continue;
-          const pay = Math.min(rem, cur);
-          rolling.set(debt.id, cur - pay);
-          rem -= pay;
+            // Assume the suggestion is acted on — zero out this debt so it
+          // won't appear again in subsequent periods.
+          rolling.set(debt.id, 0);
+          rem -= cur;
         }
       }
     }
