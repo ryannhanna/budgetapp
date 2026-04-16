@@ -25,7 +25,7 @@ export default function PayoffTimeline({ state, onStrategyChange }: PayoffTimeli
   const monthlyDebtMins = getTotalDebtMinimums(debts);
   const monthlyLeftover = Math.max(0, monthlyIncome - monthlyExpenses - monthlyDebtMins);
 
-  const result = calculatePayoffTimeline(debts, payoffStrategy, monthlyLeftover, extraPayment);
+  const result = calculatePayoffTimeline(debts, payoffStrategy, monthlyLeftover, extraPayment, incomeStreams, expenses);
 
   return (
     <div className="space-y-6">

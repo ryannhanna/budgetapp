@@ -235,7 +235,7 @@ function buildDebtPayoffSheet(state: BudgetState): XLSX.WorkSheet {
   rows.push([]);
   rows.push(['Month #', 'Projected Date', 'Debt Paid Off', 'Amount Applied', 'Cascade Added']);
 
-  const result = calculatePayoffTimeline(debts, payoffStrategy, monthlyLeftover, 0);
+  const result = calculatePayoffTimeline(debts, payoffStrategy, monthlyLeftover, 0, incomeStreams, expenses);
   for (const event of result.events) {
     rows.push([
       event.month,

@@ -125,14 +125,15 @@ export function calculatePayoffTimeline(
   debts: Debt[],
   strategy: PayoffStrategy,
   monthlyLeftover: number,
-  extraPayment: number
+  extraPayment: number,
+  incomeStreams?: IncomeStream[],
+  expenses?: Expense[]
 ): PayoffResult {
   const sorted = sortByStrategy(debts, strategy);
   if (sorted.length === 0) return { events: [], totalInterestPaid: 0, payoffDate: null, monthsToFree: 0 };
 
   // Deep clone debts for simulation
   const working = sorted.map(d => ({ ...d }));
-  let extra = monthlyLeftover + extraPayment;
   const events: PayoffEvent[] = [];
   let totalInterestPaid = 0;
   const now = new Date();
@@ -143,6 +144,18 @@ export function calculatePayoffTimeline(
 
   while (working.some(d => d.balance > 0) && month < MAX_MONTHS) {
     month++;
+
+    // Recompute leftover each month so future income/expense start dates are reflected
+    let extra: number;
+    if (incomeStreams && expenses) {
+      const simDate = new Date(now.getFullYear(), now.getMonth() + month, 1);
+      const simIncome = getTotalIncome(incomeStreams, 'monthly', simDate);
+      const simExpenses = getTotalExpenses(expenses, 'monthly', simDate);
+      const simMins = getTotalDebtMinimums(debts);
+      extra = Math.max(0, simIncome - simExpenses - simMins) + extraPayment;
+    } else {
+      extra = monthlyLeftover + extraPayment;
+    }
 
     // Apply interest to each active debt
     for (const d of working) {
