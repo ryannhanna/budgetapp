@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { BudgetState, SavingsGoal } from '@/lib/types';
-import { getTotalIncome, getTotalExpenses, getTotalDebtMinimums, fmt } from '@/lib/calculations';
-import { Plus, Pencil, Trash2, PlusCircle } from 'lucide-react';
+import { getTotalIncome, getTotalExpenses, getTotalDebtMinimums, calculatePayoffTimeline, fmt } from '@/lib/calculations';
+import { Plus, Pencil, Trash2, PlusCircle, TrendingUp } from 'lucide-react';
 import SavingsGoalForm from './SavingsGoalForm';
 
 interface SavingsGoalsProps {
@@ -14,16 +14,32 @@ interface SavingsGoalsProps {
 }
 
 export default function SavingsGoals({ state, onAdd, onUpdate, onDelete }: SavingsGoalsProps) {
-  const { savingsGoals, incomeStreams, expenses, debts, viewMode } = state;
+  const { savingsGoals, incomeStreams, expenses, debts, viewMode, payoffStrategy } = state;
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<SavingsGoal | null>(null);
 
+  // Current surplus (only currently-active income/expenses)
   const monthlyIncome = getTotalIncome(incomeStreams, 'monthly');
   const monthlyExpenses = getTotalExpenses(expenses, 'monthly');
   const monthlyDebtMins = getTotalDebtMinimums(debts);
   const monthlyLeftover = Math.max(0, monthlyIncome - monthlyExpenses - monthlyDebtMins);
 
+  // Post-debt-freedom surplus: income & expenses at payoff date, no debt minimums
+  const payoffResult = calculatePayoffTimeline(debts, payoffStrategy, monthlyLeftover, 0, incomeStreams, expenses);
+  const payoffDate = payoffResult.payoffDate;
+  const postDebtMonthlyIncome = payoffDate
+    ? getTotalIncome(incomeStreams, 'monthly', payoffDate)
+    : getTotalIncome(incomeStreams, 'monthly');
+  const postDebtMonthlyExpenses = payoffDate
+    ? getTotalExpenses(expenses, 'monthly', payoffDate)
+    : getTotalExpenses(expenses, 'monthly');
+  // After payoff: all debt minimums freed up
+  const postDebtMonthlyLeftover = Math.max(0, postDebtMonthlyIncome - postDebtMonthlyExpenses);
+
   const periodicLeftover = viewMode === 'bi-weekly' ? (monthlyLeftover * 12) / 26 : monthlyLeftover;
+  const postDebtPeriodicLeftover = viewMode === 'bi-weekly'
+    ? (postDebtMonthlyLeftover * 12) / 26
+    : postDebtMonthlyLeftover;
 
   const addAmount = (goal: SavingsGoal, amount: number) => {
     onUpdate({ ...goal, currentAmount: Math.min(goal.targetAmount, goal.currentAmount + amount) });
@@ -32,17 +48,32 @@ export default function SavingsGoals({ state, onAdd, onUpdate, onDelete }: Savin
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-gray-900 rounded-2xl p-6 shadow-lg flex items-center justify-between border border-gray-800">
-        <div>
-          <p className="text-xs text-gray-400 mb-1">Available per paycheck for savings</p>
-          <p className="text-2xl font-bold text-green-400">{fmt(periodicLeftover)}</p>
+      <div className="bg-gray-900 rounded-2xl p-6 shadow-lg border border-gray-800">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex gap-6 flex-wrap">
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Available now per {viewMode === 'bi-weekly' ? 'paycheck' : 'month'}</p>
+              <p className="text-2xl font-bold text-green-400">{fmt(periodicLeftover)}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{fmt(monthlyLeftover)}/mo</p>
+            </div>
+            {postDebtMonthlyLeftover > monthlyLeftover && (
+              <div className="border-l border-gray-700 pl-6">
+                <p className="text-xs text-gray-400 mb-1 flex items-center gap-1">
+                  <TrendingUp size={11} />
+                  After debt freedom{payoffDate ? ` (${payoffDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })})` : ''}
+                </p>
+                <p className="text-2xl font-bold text-blue-400">{fmt(postDebtPeriodicLeftover)}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{fmt(postDebtMonthlyLeftover)}/mo</p>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => { setEditing(null); setShowForm(true); }}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white rounded-lg px-4 py-2 font-medium transition-colors flex-shrink-0"
+          >
+            <Plus size={16} /> Add Goal
+          </button>
         </div>
-        <button
-          onClick={() => { setEditing(null); setShowForm(true); }}
-          className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white rounded-lg px-4 py-2 font-medium transition-colors"
-        >
-          <Plus size={16} /> Add Goal
-        </button>
       </div>
 
       {savingsGoals.length === 0 ? (
@@ -61,7 +92,11 @@ export default function SavingsGoals({ state, onAdd, onUpdate, onDelete }: Savin
           {savingsGoals.map(goal => {
             const pct = goal.targetAmount > 0 ? Math.min(100, (goal.currentAmount / goal.targetAmount) * 100) : 0;
             const remaining = goal.targetAmount - goal.currentAmount;
+            const periodsLabel = viewMode === 'bi-weekly' ? 'paycheck' : 'month';
             const paychecksLeft = periodicLeftover > 0 ? Math.ceil(remaining / periodicLeftover) : null;
+            const postDebtPaychecksLeft = postDebtPeriodicLeftover > periodicLeftover
+              ? Math.ceil(remaining / postDebtPeriodicLeftover)
+              : null;
             const done = goal.currentAmount >= goal.targetAmount;
 
             return (
@@ -96,21 +131,39 @@ export default function SavingsGoals({ state, onAdd, onUpdate, onDelete }: Savin
                 </div>
 
                 {!done && (
-                  <div className="flex items-center justify-between text-xs text-gray-500 mb-4">
-                    <span>{fmt(remaining)} remaining</span>
-                    {paychecksLeft !== null && (
-                      <span>~{paychecksLeft} paycheck{paychecksLeft !== 1 ? 's' : ''} away</span>
+                  <div className="space-y-1 mb-4">
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>{fmt(remaining)} remaining</span>
+                      {paychecksLeft !== null && (
+                        <span>~{paychecksLeft} {periodsLabel}{paychecksLeft !== 1 ? 's' : ''} away (now)</span>
+                      )}
+                    </div>
+                    {postDebtPaychecksLeft !== null && (
+                      <div className="flex items-center justify-between text-xs text-blue-500/70">
+                        <span className="flex items-center gap-1"><TrendingUp size={10} /> After debt freedom</span>
+                        <span>~{postDebtPaychecksLeft} {periodsLabel}{postDebtPaychecksLeft !== 1 ? 's' : ''} away</span>
+                      </div>
                     )}
                   </div>
                 )}
 
                 {!done && (
-                  <button
-                    onClick={() => addAmount(goal, periodicLeftover)}
-                    className="w-full flex items-center justify-center gap-2 text-xs py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
-                  >
-                    <PlusCircle size={13} /> Add {fmt(periodicLeftover)} (1 paycheck)
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => addAmount(goal, periodicLeftover)}
+                      className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
+                    >
+                      <PlusCircle size={13} /> {fmt(periodicLeftover)} now
+                    </button>
+                    {postDebtPeriodicLeftover > periodicLeftover && (
+                      <button
+                        onClick={() => addAmount(goal, postDebtPeriodicLeftover)}
+                        className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2 rounded-lg bg-blue-900/30 hover:bg-blue-900/50 text-blue-400 border border-blue-800/30 transition-colors"
+                      >
+                        <PlusCircle size={13} /> {fmt(postDebtPeriodicLeftover)} post-debt
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             );
