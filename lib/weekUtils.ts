@@ -34,7 +34,7 @@ export function getBiWeeklyRanges(year: number, month: number, anchor?: Date): W
     const periodEnd = new Date(cursor);
     periodEnd.setDate(periodEnd.getDate() + 13);
 
-    if (periodEnd >= firstDay) {
+    if (periodStart >= firstDay) {
       ranges.push({
         weekId: `${year}-${String(month + 1).padStart(2, '0')}-B${periodNum}`,
         start: periodStart,
