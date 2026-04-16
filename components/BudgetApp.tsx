@@ -30,7 +30,6 @@ const DEFAULT_STATE: BudgetState = {
   debts: [
     { id: uuid(), name: 'Capital One QS', balance: 3000, minimumPayment: 145, interestRate: 29.99, dueDay: 22, owner: 'me', isPaidOff: false },
     { id: uuid(), name: 'Capital One QS2', balance: 2000, minimumPayment: 72, interestRate: 27.99, dueDay: 22, owner: 'me', isPaidOff: false },
-    { id: uuid(), name: 'Best Egg', balance: 2400, minimumPayment: 200, interestRate: 18.99, dueDay: 17, owner: 'me', isPaidOff: false },
     { id: uuid(), name: 'Care Credit', balance: 2700, minimumPayment: 90, interestRate: 26.99, dueDay: 10, owner: 'me', isPaidOff: false },
     { id: uuid(), name: 'Upstart', balance: 1200, minimumPayment: 111, interestRate: 24.99, dueDay: 21, owner: 'me', isPaidOff: false },
     { id: uuid(), name: 'Car Payment', balance: 5000, minimumPayment: 372, dueDay: 1, owner: 'me', isPaidOff: false },
