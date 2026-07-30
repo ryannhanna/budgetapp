@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { IncomeStream, PayFrequency, BudgetState } from '@/lib/types';
-import { incomeToBiWeekly, incomeToMonthly, getTotalIncome, isIncomeActive, fmt } from '@/lib/calculations';
+import { incomeToSemiMonthly, incomeToMonthly, getTotalIncome, isIncomeActive, fmt } from '@/lib/calculations';
 import { getNextPayDate } from '@/lib/weekUtils';
 import { Plus, Pencil, Trash2, X, Check, Calendar } from 'lucide-react';
 
@@ -74,7 +74,7 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
       {/* Summary */}
       <div className="bg-gray-900 rounded-2xl p-6 shadow-lg flex items-center justify-between">
         <div>
-          <p className="text-xs text-gray-400 mb-1">Total income ({viewMode === 'bi-weekly' ? 'bi-weekly' : 'monthly'})</p>
+          <p className="text-xs text-gray-400 mb-1">Total income ({viewMode === 'semi-monthly' ? 'semi-monthly' : 'monthly'})</p>
           <p className="text-2xl font-bold text-green-400">{fmt(totalIncome)}</p>
         </div>
         <button
@@ -100,7 +100,7 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {incomeStreams.map(s => {
-            const bw = incomeToBiWeekly(s.amount, s.frequency);
+            const bw = incomeToSemiMonthly(s.amount, s.frequency);
             const mo = incomeToMonthly(s.amount, s.frequency);
             return (
               <div key={s.id} className="bg-gray-900 rounded-2xl p-5 shadow-lg border border-gray-800">
@@ -151,7 +151,7 @@ export default function IncomeSetup({ state, onAdd, onUpdate, onDelete }: Income
                 )}
                 <div className="border-t border-gray-800 pt-3 grid grid-cols-2 gap-2 text-xs text-gray-400">
                   <div>
-                    <span className="block text-gray-500">Bi-weekly</span>
+                    <span className="block text-gray-500">Semi-monthly</span>
                     <span className="text-gray-300">{fmt(bw)}</span>
                   </div>
                   <div>

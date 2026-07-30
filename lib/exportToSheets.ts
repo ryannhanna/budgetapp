@@ -3,9 +3,9 @@ import { BudgetState, Expense, Debt } from './types';
 import {
   getTotalIncome, getTotalExpenses, getTotalDebtMinimums,
   sortByStrategy, calculatePayoffTimeline, debtRatio,
-  isExpenseActive, isIncomeActive, incomeToBiWeekly,
+  isExpenseActive, isIncomeActive, incomeToSemiMonthly,
 } from './calculations';
-import { getBiWeeklyRanges, getExpensesDueInWeek, getIncomeInWeek } from './weekUtils';
+import { getSemiMonthlyRanges, getExpensesDueInWeek, getIncomeInWeek } from './weekUtils';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -26,10 +26,10 @@ function buildOverallBudget(state: BudgetState): XLSX.WorkSheet {
 
   // ── Income ──
   rows.push(['INCOME']);
-  rows.push(['Name', 'Amount per Period', 'Frequency', 'Bi-Weekly Equiv.', 'Monthly Equiv.', 'Start Date']);
+  rows.push(['Name', 'Amount per Period', 'Frequency', 'Semi-Monthly Equiv.', 'Monthly Equiv.', 'Start Date']);
   for (const s of incomeStreams) {
-    const bw = incomeToBiWeekly(s.amount, s.frequency);
-    const mo = bw * 26 / 12;
+    const bw = incomeToSemiMonthly(s.amount, s.frequency);
+    const mo = bw * 2;
     const active = isIncomeActive(s, now);
     rows.push([
       s.name,
@@ -125,9 +125,7 @@ function buildOverallBudget(state: BudgetState): XLSX.WorkSheet {
 function buildMonthSheet(state: BudgetState, year: number, month: number): XLSX.WorkSheet {
   const { incomeStreams, expenses, debts, weekEntries } = state;
 
-  const anchorStream = incomeStreams.find(s => s.frequency === 'bi-weekly' && s.nextPayDate);
-  const anchor = anchorStream ? new Date(anchorStream.nextPayDate + 'T00:00:00') : undefined;
-  const periods = getBiWeeklyRanges(year, month, anchor);
+  const periods = getSemiMonthlyRanges(year, month);
 
   const rows: (string | number)[][] = [];
   rows.push([`${MONTH_NAMES[month]} ${year} — Pay Period Breakdown`]);
@@ -145,7 +143,7 @@ function buildMonthSheet(state: BudgetState, year: number, month: number): XLSX.
     const nonRentExpenses = activeExp.filter(e => e.name.toLowerCase() !== 'rent');
 
     const due = getExpensesDueInWeek(nonRentExpenses, debts, period.start, period.end);
-    const rentPerPeriod = rentExpenses.reduce((s, e) => s + e.amount, 0) / periods.length;
+    const rentPerPeriod = rentExpenses.reduce((s, e) => s + e.amount, 0) / 2;
 
     const dueCost = due.reduce((s, { item, type }) =>
       s + (type === 'expense' ? (item as Expense).amount : (item as Debt).minimumPayment), 0);
@@ -156,7 +154,7 @@ function buildMonthSheet(state: BudgetState, year: number, month: number): XLSX.
       .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
     const fallback = incomeStreams
       .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
-      .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
+      .reduce((sum, s) => sum + incomeToSemiMonthly(s.amount, s.frequency), 0);
     const periodIncome = exactIncome + fallback + (entry?.extraIncome ?? 0);
     const leftover = periodIncome - periodExpenses;
 

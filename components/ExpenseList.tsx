@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { BudgetState, Expense, ExpenseCategory, CATEGORY_COLORS } from '@/lib/types';
-import { toBiWeekly, toMonthly, getTotalExpenses, isExpenseActive, fmt } from '@/lib/calculations';
+import { toSemiMonthly, toMonthly, getTotalExpenses, isExpenseActive, fmt } from '@/lib/calculations';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import ExpenseForm from './ExpenseForm';
 
@@ -23,7 +23,7 @@ export default function ExpenseList({ state, onAdd, onUpdate, onDelete }: Expens
   const [editing, setEditing] = useState<Expense | null>(null);
   const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set());
 
-  const normalize = viewMode === 'bi-weekly' ? toBiWeekly : toMonthly;
+  const normalize = viewMode === 'semi-monthly' ? toSemiMonthly : toMonthly;
   const total = getTotalExpenses(expenses, viewMode);
 
   // Group by category
@@ -48,7 +48,7 @@ export default function ExpenseList({ state, onAdd, onUpdate, onDelete }: Expens
       {/* Summary bar */}
       <div className="bg-gray-900 rounded-2xl p-6 shadow-lg flex items-center justify-between">
         <div>
-          <p className="text-xs text-gray-400 mb-1">Total expenses ({viewMode === 'bi-weekly' ? 'bi-weekly' : 'monthly'})</p>
+          <p className="text-xs text-gray-400 mb-1">Total expenses ({viewMode === 'semi-monthly' ? 'semi-monthly' : 'monthly'})</p>
           <p className="text-2xl font-bold text-red-400">{fmt(total)}</p>
         </div>
         <button

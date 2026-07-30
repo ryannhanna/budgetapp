@@ -91,7 +91,7 @@ export interface BudgetState {
   debts: Debt[];
   savingsGoals: SavingsGoal[];
   payoffStrategy: PayoffStrategy;
-  viewMode: 'bi-weekly' | 'monthly';
+  viewMode: 'semi-monthly' | 'monthly';
   weekEntries: WeekEntry[];
   activeTab: string;
 }

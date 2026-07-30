@@ -3,8 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { BudgetState, Expense, Debt, WeekEntry } from '@/lib/types';
-import { getBiWeeklyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
-import { incomeToBiWeekly, fmt, sortByStrategy, isExpenseActive, isIncomeActive } from '@/lib/calculations';
+import { getSemiMonthlyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
+import { incomeToSemiMonthly, fmt, sortByStrategy, isExpenseActive, isIncomeActive } from '@/lib/calculations';
 import { ChevronLeft, ChevronRight, Lightbulb, CheckCircle2 } from 'lucide-react';
 
 interface WeeklyViewProps {
@@ -38,11 +38,7 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
     currentPeriodRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  // Anchor bi-weekly periods to the first bi-weekly stream with a known pay date
-  const anchorStream = incomeStreams.find(s => s.frequency === 'bi-weekly' && s.nextPayDate);
-  const anchor = anchorStream ? new Date(anchorStream.nextPayDate + 'T00:00:00') : undefined;
-
-  const periods = getBiWeeklyRanges(year, month, anchor);
+  const periods = getSemiMonthlyRanges(year, month);
 
   const prevMonth = () => {
     if (month === 0) { setMonth(11); setYear(y => y - 1); }
@@ -52,9 +48,6 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
     if (month === 11) { setMonth(0); setYear(y => y + 1); }
     else setMonth(m => m + 1);
   };
-
-  // hasFallback: true if any stream without a pay date exists (used for "(est.)" label)
-  const hasFallback = incomeStreams.some(s => !s.nextPayDate && s.frequency !== 'one-time');
 
   let monthTotalIncome = 0;
   let monthTotalExpenses = 0;
@@ -82,7 +75,7 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
         .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
       const periodFallback = incomeStreams
         .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
-        .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
+        .reduce((sum, s) => sum + incomeToSemiMonthly(s.amount, s.frequency), 0);
       const pLeftover = (exactInc + periodFallback + (pEntry?.extraIncome ?? 0)) - (dueCost + rentPer);
       if (pLeftover > 0) {
         const sorted = sortByStrategy(debts, state.payoffStrategy).filter(d => !paidIds.includes(d.id));
@@ -109,9 +102,7 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
         </button>
         <div className="text-center">
           <h2 className="text-lg font-semibold text-gray-100">{MONTH_NAMES[month]} {year}</h2>
-          {anchor && (
-            <p className="text-xs text-gray-500 mt-0.5">Periods anchored to pay schedule</p>
-          )}
+          <p className="text-xs text-gray-500 mt-0.5">1st–15th &amp; 16th–end of month</p>
         </div>
         <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors">
           <ChevronRight size={20} />
@@ -154,7 +145,7 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
           .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
         const fallback = incomeStreams
           .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
-          .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
+          .reduce((sum, s) => sum + incomeToSemiMonthly(s.amount, s.frequency), 0);
         const periodIncome = exactIncome + fallback + entry.extraIncome;
         const leftover = periodIncome - periodExpenses;
 
@@ -200,9 +191,7 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
             <div className="px-5 py-3 space-y-1.5">
               {/* Income row */}
               <div className="flex items-center justify-between text-sm py-1">
-                <span className="text-gray-400">
-                  Income{hasFallback ? ' (est.)' : ''}
-                </span>
+                <span className="text-gray-400">Income</span>
                 <span className="text-green-400 font-medium">{fmt(periodIncome)}</span>
               </div>
 

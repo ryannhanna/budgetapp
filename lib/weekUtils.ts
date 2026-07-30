@@ -1,10 +1,32 @@
 import { Debt, Expense, IncomeStream, PayFrequency } from './types';
-import { incomeToBiWeekly, isExpenseActive, isIncomeActive } from './calculations';
+import { incomeToSemiMonthly, isExpenseActive, isIncomeActive } from './calculations';
 
 export interface WeekRange {
   weekId: string;
   start: Date;
   end: Date;
+}
+
+/**
+ * Returns exactly 2 semi-monthly pay period ranges for the given month:
+ *   Period 1: 1st – 15th
+ *   Period 2: 16th – last day of month
+ */
+export function getSemiMonthlyRanges(year: number, month: number): WeekRange[] {
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const mm = String(month + 1).padStart(2, '0');
+  return [
+    {
+      weekId: `${year}-${mm}-SM1`,
+      start: new Date(year, month, 1),
+      end: new Date(year, month, 15),
+    },
+    {
+      weekId: `${year}-${mm}-SM2`,
+      start: new Date(year, month, 16),
+      end: new Date(year, month, lastDay),
+    },
+  ];
 }
 
 /**
@@ -287,26 +309,24 @@ export function getUpcomingPayments(
  * the given month. Mirrors the WeeklyView calculation: rent is split evenly
  * across periods; all other items appear in full in their due period.
  */
-export function getBiWeeklyMonthlyLeftover(
+export function getSemiMonthlyMonthlyLeftover(
   incomeStreams: IncomeStream[],
   expenses: Expense[],
   debts: Debt[],
   year: number,
   month: number
 ): number {
-  const anchorStream = incomeStreams.find(s => s.frequency === 'bi-weekly' && s.nextPayDate);
-  const anchor = anchorStream ? new Date(anchorStream.nextPayDate + 'T00:00:00') : undefined;
-  const periods = getBiWeeklyRanges(year, month, anchor);
+  const periods = getSemiMonthlyRanges(year, month);
 
   let total = 0;
   for (const period of periods) {
     const fallbackPerPeriod = incomeStreams
       .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
-      .reduce((sum, s) => sum + incomeToBiWeekly(s.amount, s.frequency), 0);
+      .reduce((sum, s) => sum + incomeToSemiMonthly(s.amount, s.frequency), 0);
     const activeExp = expenses.filter(e => isExpenseActive(e, period.start));
     const periodRent = activeExp.filter(e => e.name.toLowerCase() === 'rent');
     const periodNonRent = activeExp.filter(e => e.name.toLowerCase() !== 'rent');
-    const rentPer = periodRent.reduce((s, e) => s + e.amount, 0) / (periods.length || 1);
+    const rentPer = periodRent.reduce((s, e) => s + e.amount, 0) / 2;
     const due = getExpensesDueInWeek(periodNonRent, debts, period.start, period.end);
     const dueCost = due.reduce((s, { item, type }) =>
       s + (type === 'expense' ? (item as Expense).amount : (item as Debt).minimumPayment), 0);

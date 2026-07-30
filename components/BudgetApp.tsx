@@ -39,7 +39,7 @@ const DEFAULT_STATE: BudgetState = {
     { id: uuid(), name: 'Vacation', targetAmount: 3000, currentAmount: 0, color: '#6366f1' },
   ],
   payoffStrategy: 'ratio',
-  viewMode: 'bi-weekly',
+  viewMode: 'semi-monthly',
   weekEntries: [],
   activeTab: 'dashboard',
 };
@@ -53,7 +53,11 @@ function lsWrite(state: BudgetState) {
 function lsRead(): BudgetState | null {
   try {
     const raw = localStorage.getItem(LS_STATE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Migrate old 'bi-weekly' viewMode to 'semi-monthly'
+    if (parsed?.viewMode === 'bi-weekly') parsed.viewMode = 'semi-monthly';
+    return parsed;
   } catch { return null; }
 }
 function lsVersion(): number {
@@ -249,14 +253,14 @@ export default function BudgetApp() {
             </div>
             <span className="text-xs text-gray-500">View:</span>
             <button
-              onClick={() => update({ viewMode: 'bi-weekly' })}
+              onClick={() => update({ viewMode: 'semi-monthly' })}
               className={`text-xs px-3 py-1 rounded-full font-medium transition-colors ${
-                state.viewMode === 'bi-weekly'
+                state.viewMode === 'semi-monthly'
                   ? 'bg-green-600 text-white'
                   : 'bg-gray-800 text-gray-400 hover:text-gray-200'
               }`}
             >
-              Bi-weekly
+              Semi-monthly
             </button>
             <button
               onClick={() => update({ viewMode: 'monthly' })}

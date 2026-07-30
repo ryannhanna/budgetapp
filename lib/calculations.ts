@@ -9,6 +9,15 @@ export function toBiWeekly(amount: number, frequency: ExpenseFrequency): number 
   }
 }
 
+export function toSemiMonthly(amount: number, frequency: ExpenseFrequency): number {
+  switch (frequency) {
+    case 'weekly': return (amount * 52) / 24;
+    case 'bi-weekly': return (amount * 26) / 24;
+    case 'monthly': return amount / 2;
+    case 'annual': return amount / 24;
+  }
+}
+
 export function toMonthly(amount: number, frequency: ExpenseFrequency): number {
   switch (frequency) {
     case 'weekly': return amount * 4.333;
@@ -24,6 +33,16 @@ export function incomeToBiWeekly(amount: number, freq: PayFrequency): number {
     case 'bi-weekly': return amount;
     case 'semi-monthly': return (amount * 24) / 26;
     case 'monthly': return (amount * 12) / 26;
+    case 'one-time': return 0;
+  }
+}
+
+export function incomeToSemiMonthly(amount: number, freq: PayFrequency): number {
+  switch (freq) {
+    case 'weekly': return (amount * 52) / 24;
+    case 'bi-weekly': return (amount * 26) / 24;
+    case 'semi-monthly': return amount;
+    case 'monthly': return amount / 2;
     case 'one-time': return 0;
   }
 }
@@ -52,11 +71,12 @@ export function isIncomeActive(stream: IncomeStream, asOf: Date = new Date()): b
   return true;
 }
 
-export function getTotalIncome(streams: IncomeStream[], mode: 'bi-weekly' | 'monthly', asOf: Date = new Date()): number {
+export function getTotalIncome(streams: IncomeStream[], mode: 'semi-monthly' | 'bi-weekly' | 'monthly', asOf: Date = new Date()): number {
   return streams.filter(s => isIncomeActive(s, asOf)).reduce((sum, s) => {
-    const normalized = mode === 'bi-weekly'
-      ? incomeToBiWeekly(s.amount, s.frequency)
-      : incomeToMonthly(s.amount, s.frequency);
+    let normalized: number;
+    if (mode === 'semi-monthly') normalized = incomeToSemiMonthly(s.amount, s.frequency);
+    else if (mode === 'bi-weekly') normalized = incomeToBiWeekly(s.amount, s.frequency);
+    else normalized = incomeToMonthly(s.amount, s.frequency);
     return sum + normalized;
   }, 0);
 }
@@ -75,11 +95,12 @@ export function isExpenseActive(expense: Expense, asOf: Date = new Date()): bool
   return true;
 }
 
-export function getTotalExpenses(expenses: Expense[], mode: 'bi-weekly' | 'monthly', asOf: Date = new Date()): number {
+export function getTotalExpenses(expenses: Expense[], mode: 'semi-monthly' | 'bi-weekly' | 'monthly', asOf: Date = new Date()): number {
   return expenses.filter(e => isExpenseActive(e, asOf)).reduce((sum, e) => {
-    const normalized = mode === 'bi-weekly'
-      ? toBiWeekly(e.amount, e.frequency)
-      : toMonthly(e.amount, e.frequency);
+    let normalized: number;
+    if (mode === 'semi-monthly') normalized = toSemiMonthly(e.amount, e.frequency);
+    else if (mode === 'bi-weekly') normalized = toBiWeekly(e.amount, e.frequency);
+    else normalized = toMonthly(e.amount, e.frequency);
     return sum + normalized;
   }, 0);
 }

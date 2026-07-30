@@ -6,7 +6,7 @@ import {
   LineChart, Line,
 } from 'recharts';
 import { BudgetState, CATEGORY_COLORS } from '@/lib/types';
-import { toBiWeekly, toMonthly, getTotalIncome, getTotalExpenses, getTotalDebtMinimums } from '@/lib/calculations';
+import { toSemiMonthly, toMonthly, getTotalIncome, getTotalExpenses, getTotalDebtMinimums } from '@/lib/calculations';
 import { getWeekRanges } from '@/lib/weekUtils';
 
 const currencyFmt = (v: unknown) =>
@@ -19,7 +19,7 @@ interface ChartsProps {
 
 export default function Charts({ state }: ChartsProps) {
   const { expenses, debts, incomeStreams, viewMode, weekEntries } = state;
-  const normalize = viewMode === 'bi-weekly' ? toBiWeekly : toMonthly;
+  const normalize = viewMode === 'semi-monthly' ? toSemiMonthly : toMonthly;
 
   // --- Pie: spending by category ---
   const categoryTotals: Record<string, number> = {};
@@ -36,7 +36,7 @@ export default function Charts({ state }: ChartsProps) {
   const totalIncome = getTotalIncome(incomeStreams, viewMode);
   const totalExpenses = getTotalExpenses(expenses, viewMode);
   const debtMonthly = getTotalDebtMinimums(debts);
-  const debtPeriod = viewMode === 'bi-weekly' ? (debtMonthly * 12) / 26 : debtMonthly;
+  const debtPeriod = viewMode === 'semi-monthly' ? debtMonthly / 2 : debtMonthly;
   const totalOut = totalExpenses + debtPeriod;
   const leftover = totalIncome - totalOut;
   const barData = [
@@ -99,7 +99,7 @@ export default function Charts({ state }: ChartsProps) {
       {/* Bar chart */}
       <div className="bg-gray-900 rounded-2xl p-6 shadow-lg">
         <h3 className="text-sm font-medium text-gray-400 mb-4">
-          Income vs Expenses ({viewMode === 'bi-weekly' ? 'Bi-weekly' : 'Monthly'})
+          Income vs Expenses ({viewMode === 'semi-monthly' ? 'Semi-monthly' : 'Monthly'})
         </h3>
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={barData} barSize={40}>

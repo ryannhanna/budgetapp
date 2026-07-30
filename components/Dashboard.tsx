@@ -19,7 +19,7 @@ export default function Dashboard({ state }: DashboardProps) {
   const totalIncome = getTotalIncome(incomeStreams, viewMode);
   const totalExpenses = getTotalExpenses(expenses, viewMode);
   const debtMonthly = getTotalDebtMinimums(debts);
-  const debtPeriod = viewMode === 'bi-weekly' ? (debtMonthly * 12) / 26 : debtMonthly;
+  const debtPeriod = viewMode === 'semi-monthly' ? debtMonthly / 2 : debtMonthly;
   const totalOut = totalExpenses + debtPeriod;
   const net = totalIncome - totalOut;
   const totalDebtBalance = debts.filter(d => !d.isPaidOff).reduce((s, d) => s + d.balance, 0);
@@ -58,13 +58,13 @@ export default function Dashboard({ state }: DashboardProps) {
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <SummaryCard
-          label={`Income (${viewMode === 'bi-weekly' ? 'bi-weekly' : 'monthly'})`}
+          label={`Income (${viewMode === 'semi-monthly' ? 'semi-monthly' : 'monthly'})`}
           value={fmt(totalIncome)}
           icon={<TrendingUp size={18} className="text-green-400" />}
           color="text-green-400"
         />
         <SummaryCard
-          label={`Expenses (${viewMode === 'bi-weekly' ? 'bi-weekly' : 'monthly'})`}
+          label={`Expenses (${viewMode === 'semi-monthly' ? 'semi-monthly' : 'monthly'})`}
           value={fmt(totalOut)}
           icon={<TrendingDown size={18} className="text-red-400" />}
           color="text-red-400"

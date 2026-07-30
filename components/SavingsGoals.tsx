@@ -36,9 +36,9 @@ export default function SavingsGoals({ state, onAdd, onUpdate, onDelete }: Savin
   // After payoff: all debt minimums freed up
   const postDebtMonthlyLeftover = Math.max(0, postDebtMonthlyIncome - postDebtMonthlyExpenses);
 
-  const periodicLeftover = viewMode === 'bi-weekly' ? (monthlyLeftover * 12) / 26 : monthlyLeftover;
-  const postDebtPeriodicLeftover = viewMode === 'bi-weekly'
-    ? (postDebtMonthlyLeftover * 12) / 26
+  const periodicLeftover = viewMode === 'semi-monthly' ? monthlyLeftover / 2 : monthlyLeftover;
+  const postDebtPeriodicLeftover = viewMode === 'semi-monthly'
+    ? postDebtMonthlyLeftover / 2
     : postDebtMonthlyLeftover;
 
   const addAmount = (goal: SavingsGoal, amount: number) => {
@@ -52,7 +52,7 @@ export default function SavingsGoals({ state, onAdd, onUpdate, onDelete }: Savin
         <div className="flex items-start justify-between gap-4">
           <div className="flex gap-6 flex-wrap">
             <div>
-              <p className="text-xs text-gray-400 mb-1">Available now per {viewMode === 'bi-weekly' ? 'paycheck' : 'month'}</p>
+              <p className="text-xs text-gray-400 mb-1">Available now per {viewMode === 'semi-monthly' ? 'paycheck' : 'month'}</p>
               <p className="text-2xl font-bold text-green-400">{fmt(periodicLeftover)}</p>
               <p className="text-xs text-gray-500 mt-0.5">{fmt(monthlyLeftover)}/mo</p>
             </div>
@@ -92,7 +92,7 @@ export default function SavingsGoals({ state, onAdd, onUpdate, onDelete }: Savin
           {savingsGoals.map(goal => {
             const pct = goal.targetAmount > 0 ? Math.min(100, (goal.currentAmount / goal.targetAmount) * 100) : 0;
             const remaining = goal.targetAmount - goal.currentAmount;
-            const periodsLabel = viewMode === 'bi-weekly' ? 'paycheck' : 'month';
+            const periodsLabel = viewMode === 'semi-monthly' ? 'paycheck' : 'month';
             const paychecksLeft = periodicLeftover > 0 ? Math.ceil(remaining / periodicLeftover) : null;
             const postDebtPaychecksLeft = postDebtPeriodicLeftover > periodicLeftover
               ? Math.ceil(remaining / postDebtPeriodicLeftover)
