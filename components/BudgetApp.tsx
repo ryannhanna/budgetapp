@@ -41,7 +41,6 @@ const DEFAULT_STATE: BudgetState = {
   payoffStrategy: 'ratio',
   viewMode: 'semi-monthly',
   weekEntries: [],
-  activeTab: 'dashboard',
 };
 
 const LS_STATE_KEY = 'budget-state';
@@ -95,11 +94,18 @@ async function dbPut(state: BudgetState): Promise<number | null> {
   }
 }
 
+const LS_TAB_KEY = 'budget-active-tab';
+
 export default function BudgetApp() {
   const [state, setState] = useState<BudgetState>(DEFAULT_STATE);
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const lastAppliedVersionRef = useRef(-1);
+  // activeTab lives outside BudgetState so DB polls never reset the current tab.
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window === 'undefined') return 'dashboard';
+    return localStorage.getItem(LS_TAB_KEY) ?? 'dashboard';
+  });
 
   // Load on mount: show localStorage immediately, then check DB for changes from other devices.
   useEffect(() => {
@@ -276,13 +282,13 @@ export default function BudgetApp() {
         </div>
       </header>
 
-      <NavTabs activeTab={state.activeTab} onTabChange={tab => update({ activeTab: tab })} />
+      <NavTabs activeTab={activeTab} onTabChange={tab => { setActiveTab(tab); try { localStorage.setItem(LS_TAB_KEY, tab); } catch {} }} />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {state.activeTab === 'dashboard' && (
+        {activeTab === 'dashboard' && (
           <Dashboard {...sharedProps} />
         )}
-        {state.activeTab === 'income' && (
+        {activeTab === 'income' && (
           <IncomeSetup
             {...sharedProps}
             onAdd={addIncome}
@@ -290,7 +296,7 @@ export default function BudgetApp() {
             onDelete={deleteIncome}
           />
         )}
-        {state.activeTab === 'expenses' && (
+        {activeTab === 'expenses' && (
           <ExpenseList
             {...sharedProps}
             onAdd={addExpense}
@@ -298,7 +304,7 @@ export default function BudgetApp() {
             onDelete={deleteExpense}
           />
         )}
-        {state.activeTab === 'debts' && (
+        {activeTab === 'debts' && (
           <DebtTracker
             {...sharedProps}
             onAdd={addDebt}
@@ -308,14 +314,14 @@ export default function BudgetApp() {
             onStrategyChange={s => update({ payoffStrategy: s })}
           />
         )}
-        {state.activeTab === 'weekly' && (
+        {activeTab === 'weekly' && (
           <WeeklyView
             {...sharedProps}
             onUpsertEntry={upsertWeekEntry}
             onToggleDebtPaidOff={toggleDebtPaidOff}
           />
         )}
-        {state.activeTab === 'savings' && (
+        {activeTab === 'savings' && (
           <SavingsGoals
             {...sharedProps}
             onAdd={addGoal}

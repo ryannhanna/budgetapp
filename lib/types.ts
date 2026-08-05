@@ -93,5 +93,4 @@ export interface BudgetState {
   payoffStrategy: PayoffStrategy;
   viewMode: 'semi-monthly' | 'monthly';
   weekEntries: WeekEntry[];
-  activeTab: string;
 }
