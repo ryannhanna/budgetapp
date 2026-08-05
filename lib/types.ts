@@ -81,6 +81,7 @@ export interface WeekEntry {
   startDate: string;
   endDate: string;
   paidExpenseIds: string[];
+  paidOffDebtIds: string[]; // debts paid off via the suggestion button in this period
   extraIncome: number;
   notes: string;
 }

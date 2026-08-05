@@ -11,6 +11,7 @@ interface WeeklyViewProps {
   state: BudgetState;
   onUpsertEntry: (entry: WeekEntry) => void;
   onToggleDebtPaidOff: (id: string) => void;
+  onPayOffDebtViaSuggestion: (debtId: string, entry: WeekEntry) => void;
 }
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -26,7 +27,7 @@ function fireConfetti() {
   })();
 }
 
-export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }: WeeklyViewProps) {
+export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSuggestion }: WeeklyViewProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -77,14 +78,18 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
         .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
         .reduce((sum, s) => sum + incomeToSemiMonthly(s.amount, s.frequency), 0);
       const pLeftover = (exactInc + periodFallback + (pEntry?.extraIncome ?? 0)) - (dueCost + rentPer);
-      if (pLeftover > 0) {
+      // If a debt was already paid off via the suggestion button in this period,
+      // skip the rolling simulation for this period — the next period will
+      // naturally pick up the next debt in priority order.
+      const periodPaidOff = pEntry?.paidOffDebtIds ?? [];
+      if (pLeftover > 0 && periodPaidOff.length === 0) {
         const sorted = sortByStrategy(debts, state.payoffStrategy).filter(d => !paidIds.includes(d.id));
         let rem = pLeftover;
         for (const debt of sorted) {
           if (rem <= 0) break;
           const cur = rolling.get(debt.id) ?? 0;
           if (cur <= 0) continue;
-            // Assume the suggestion is acted on — zero out this debt so it
+          // Assume the suggestion is acted on — zero out this debt so it
           // won't appear again in subsequent periods.
           rolling.set(debt.id, 0);
           rem -= cur;
@@ -116,6 +121,7 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
           startDate: period.start.toISOString(),
           endDate: period.end.toISOString(),
           paidExpenseIds: [],
+          paidOffDebtIds: [],
           extraIncome: 0,
           notes: '',
         };
@@ -258,25 +264,46 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
 
             {/* Surplus debt suggestion */}
             {leftover > 0 && (() => {
+              const periodPaidOffIds = entry.paidOffDebtIds ?? [];
+
+              // If a debt was paid off via suggestion this period, show confirmation only
+              if (periodPaidOffIds.length > 0) {
+                const paidNames = periodPaidOffIds
+                  .map(id => debts.find(d => d.id === id)?.name)
+                  .filter(Boolean)
+                  .join(', ');
+                return (
+                  <div className="px-5 pb-4">
+                    <div className="px-4 py-3 rounded-xl bg-emerald-950/50 border border-emerald-800/30">
+                      <p className="text-emerald-400 font-semibold text-xs flex items-center gap-1.5">
+                        <CheckCircle2 size={12} />
+                        {paidNames} paid off this period 🎉
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+
               const simBals = simBalsPerPeriod[idx];
-              // Exclude debts already checked off this period, or fully paid off in simulation
+              // Exclude debts checked off this period or fully consumed in simulation
               const sorted = sortByStrategy(debts, state.payoffStrategy)
                 .filter(d => !entry.paidExpenseIds.includes(d.id))
                 .filter(d => (simBals.get(d.id) ?? 0) > 0);
               if (sorted.length === 0) return null;
 
-              // Show up to 3 debts in priority order
-              const topThree = sorted.slice(0, 3);
-
-              // Distribute surplus via cascade using simulated (rolling) balances
+              // Only show debts that will actually receive surplus (no "Next up" filler)
               let remaining = leftover;
-              const rows = topThree.map(debt => {
-                const simBal = simBals.get(debt.id) ?? debt.balance;
-                const surplusAmount = remaining > 0 ? Math.min(remaining, simBal) : 0;
-                const paysOff = surplusAmount > 0 && simBal <= remaining;
-                if (surplusAmount > 0) remaining -= surplusAmount;
-                return { debt, simBal, surplusAmount, paysOff };
-              });
+              const rows = sorted
+                .map(debt => {
+                  const simBal = simBals.get(debt.id) ?? debt.balance;
+                  const surplusAmount = remaining > 0 ? Math.min(remaining, simBal) : 0;
+                  const paysOff = surplusAmount > 0 && simBal <= remaining;
+                  if (surplusAmount > 0) remaining -= surplusAmount;
+                  return { debt, simBal, surplusAmount, paysOff };
+                })
+                .filter(r => r.surplusAmount > 0); // only show rows that get real money
+
+              if (rows.length === 0) return null;
 
               return (
                 <div className="px-5 pb-4">
@@ -286,38 +313,31 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff }
                       Extra Payment Suggestion — {state.payoffStrategy} strategy
                     </p>
                     <div className="space-y-2">
-                      {rows.map(({ debt, simBal, surplusAmount, paysOff }) =>
-                        surplusAmount > 0 ? (
-                          <div key={debt.id} className="flex items-center justify-between text-sm gap-3">
-                            <span className="text-gray-300 min-w-0">
-                              {paysOff
-                                ? <span className="text-emerald-400">Pay off </span>
-                                : <span>Extra to </span>
-                              }
-                              <span className="font-medium text-gray-100">{debt.name}</span>
-                              {paysOff && <span className="text-xs text-gray-500 ml-1">({fmt(simBal)} remaining)</span>}
-                            </span>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              <span className="text-emerald-400 font-semibold">{fmt(surplusAmount)}</span>
-                              {paysOff && (
-                                <button
-                                  onClick={() => { fireConfetti(); onToggleDebtPaidOff(debt.id); }}
-                                  className="flex items-center gap-1 text-xs bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-2 py-1 font-medium transition-colors"
-                                >
-                                  <CheckCircle2 size={12} /> Paid
-                                </button>
-                              )}
-                            </div>
+                      {rows.map(({ debt, simBal, surplusAmount, paysOff }) => (
+                        <div key={debt.id} className="flex items-center justify-between text-sm gap-3">
+                          <span className="text-gray-300 min-w-0">
+                            {paysOff
+                              ? <span className="text-emerald-400">Pay off </span>
+                              : <span>Extra to </span>
+                            }
+                            <span className="font-medium text-gray-100">{debt.name}</span>
+                            {paysOff && <span className="text-xs text-gray-500 ml-1">({fmt(simBal)} remaining)</span>}
+                          </span>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-emerald-400 font-semibold">{fmt(surplusAmount)}</span>
+                            {paysOff && (
+                              <button
+                                onClick={() => { fireConfetti(); onPayOffDebtViaSuggestion(debt.id, entry); }}
+                                className="flex items-center gap-1 text-xs bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-2 py-1 font-medium transition-colors"
+                              >
+                                <CheckCircle2 size={12} /> Paid
+                              </button>
+                            )}
                           </div>
-                        ) : (
-                          <div key={debt.id} className="flex items-center justify-between text-sm">
-                            <span className="text-gray-500">Next up: <span className="text-gray-400">{debt.name}</span></span>
-                            <span className="text-gray-600 text-xs">{fmt(simBal)} left</span>
-                          </div>
-                        )
-                      )}
+                        </div>
+                      ))}
                     </div>
-                    {remaining > 0 && (
+                    {remaining > 0 && sorted.length > 0 && (
                       <p className="text-xs text-gray-500 mt-2">
                         Remaining {fmt(remaining)} goes to savings — all debts covered!
                       </p>

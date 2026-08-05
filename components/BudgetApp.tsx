@@ -230,6 +230,22 @@ export default function BudgetApp() {
     }
   };
 
+  // Atomically mark a debt as paid-off AND record it in the week entry so
+  // the pay period shows a confirmation instead of cascading to the next debt.
+  const payOffDebtViaSuggestion = (debtId: string, entry: WeekEntry) => {
+    const updatedDebts = state.debts.map(d =>
+      d.id === debtId ? { ...d, isPaidOff: true } : d
+    );
+    const updatedEntry: WeekEntry = {
+      ...entry,
+      paidOffDebtIds: [...(entry.paidOffDebtIds ?? []), debtId],
+    };
+    const updatedEntries = state.weekEntries.find(w => w.weekId === entry.weekId)
+      ? state.weekEntries.map(w => w.weekId === entry.weekId ? updatedEntry : w)
+      : [...state.weekEntries, updatedEntry];
+    update({ debts: updatedDebts, weekEntries: updatedEntries });
+  };
+
   if (!hydrated) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -319,6 +335,7 @@ export default function BudgetApp() {
             {...sharedProps}
             onUpsertEntry={upsertWeekEntry}
             onToggleDebtPaidOff={toggleDebtPaidOff}
+            onPayOffDebtViaSuggestion={payOffDebtViaSuggestion}
           />
         )}
         {activeTab === 'savings' && (
