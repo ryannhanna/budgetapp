@@ -209,8 +209,19 @@ export default function BudgetApp() {
     update({ debts: state.debts.map(d => d.id === updated.id ? updated : d) });
   const deleteDebt = (id: string) =>
     update({ debts: state.debts.filter(d => d.id !== id) });
-  const toggleDebtPaidOff = (id: string) =>
-    update({ debts: state.debts.map(d => d.id === id ? { ...d, isPaidOff: !d.isPaidOff } : d) });
+  const toggleDebtPaidOff = (id: string) => {
+    const debt = state.debts.find(d => d.id === id);
+    const updatedDebts = state.debts.map(d => d.id === id ? { ...d, isPaidOff: !d.isPaidOff } : d);
+    // When un-marking a debt as paid, clear it from paidOffDebtIds in all
+    // week entries so the pay period suggestion box shows it again.
+    const updatedEntries = debt?.isPaidOff
+      ? state.weekEntries.map(w => ({
+          ...w,
+          paidOffDebtIds: (w.paidOffDebtIds ?? []).filter(did => did !== id),
+        }))
+      : state.weekEntries;
+    update({ debts: updatedDebts, weekEntries: updatedEntries });
+  };
 
   // --- Savings ---
   const addGoal = (goal: Omit<SavingsGoal, 'id'>) =>
