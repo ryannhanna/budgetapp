@@ -264,7 +264,10 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
 
             {/* Surplus debt suggestion */}
             {leftover > 0 && (() => {
-              const periodPaidOffIds = entry.paidOffDebtIds ?? [];
+              // Only treat a debt as "paid off this period" if it's still isPaidOff —
+              // if the user un-marked it in the Debt tab, drop it from the banner.
+              const periodPaidOffIds = (entry.paidOffDebtIds ?? [])
+                .filter(did => debts.find(d => d.id === did)?.isPaidOff === true);
 
               // If a debt was paid off via suggestion this period, show confirmation only
               if (periodPaidOffIds.length > 0) {
