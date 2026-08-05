@@ -269,30 +269,12 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
               const periodPaidOffIds = (entry.paidOffDebtIds ?? [])
                 .filter(did => debts.find(d => d.id === did)?.isPaidOff === true);
 
-              // If a debt was paid off via suggestion this period, show confirmation only
-              if (periodPaidOffIds.length > 0) {
-                const paidNames = periodPaidOffIds
-                  .map(id => debts.find(d => d.id === id)?.name)
-                  .filter(Boolean)
-                  .join(', ');
-                return (
-                  <div className="px-5 pb-4">
-                    <div className="px-4 py-3 rounded-xl bg-emerald-950/50 border border-emerald-800/30">
-                      <p className="text-emerald-400 font-semibold text-xs flex items-center gap-1.5">
-                        <CheckCircle2 size={12} />
-                        {paidNames} paid off this period 🎉
-                      </p>
-                    </div>
-                  </div>
-                );
-              }
-
               const simBals = simBalsPerPeriod[idx];
-              // Exclude debts checked off this period or fully consumed in simulation
+              // Exclude debts already paid off this period or fully consumed in simulation
               const sorted = sortByStrategy(debts, state.payoffStrategy)
                 .filter(d => !entry.paidExpenseIds.includes(d.id))
+                .filter(d => !periodPaidOffIds.includes(d.id))
                 .filter(d => (simBals.get(d.id) ?? 0) > 0);
-              if (sorted.length === 0) return null;
 
               // Only show debts that will actually receive surplus (no "Next up" filler)
               let remaining = leftover;
@@ -304,9 +286,9 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                   if (surplusAmount > 0) remaining -= surplusAmount;
                   return { debt, simBal, surplusAmount, paysOff };
                 })
-                .filter(r => r.surplusAmount > 0); // only show rows that get real money
+                .filter(r => r.surplusAmount > 0);
 
-              if (rows.length === 0) return null;
+              if (periodPaidOffIds.length === 0 && rows.length === 0) return null;
 
               return (
                 <div className="px-5 pb-4">
@@ -316,6 +298,18 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                       Extra Payment Suggestion — {state.payoffStrategy} strategy
                     </p>
                     <div className="space-y-2">
+                      {/* Confirmation rows for debts already paid off this period */}
+                      {periodPaidOffIds.map(did => {
+                        const d = debts.find(db => db.id === did);
+                        return d ? (
+                          <div key={did} className="flex items-center gap-1.5 text-sm text-emerald-400">
+                            <CheckCircle2 size={13} />
+                            <span className="font-medium">{d.name}</span>
+                            <span className="text-xs text-emerald-600">paid off 🎉</span>
+                          </div>
+                        ) : null;
+                      })}
+                      {/* Remaining suggestions */}
                       {rows.map(({ debt, simBal, surplusAmount, paysOff }) => (
                         <div key={debt.id} className="flex items-center justify-between text-sm gap-3">
                           <span className="text-gray-300 min-w-0">
