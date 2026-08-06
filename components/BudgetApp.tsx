@@ -101,6 +101,7 @@ export default function BudgetApp() {
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<'connecting' | 'live' | 'offline'>('connecting');
   const lastAppliedVersionRef = useRef(-1);
   // Always-current state reference so event handlers never close over a stale snapshot.
   // Updated synchronously at the top of every render — safe to read in callbacks.
@@ -124,10 +125,11 @@ export default function BudgetApp() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load on mount: show localStorage immediately, then check DB for changes from other devices.
+  // Load on mount: show localStorage immediately, then open a real-time SSE stream
+  // so every change from any other device is pushed here within ~1.5 s.
   useEffect(() => {
     async function load() {
-      // Show localStorage instantly — no spinner wait, and survives refresh regardless of DB timing.
+      // Show localStorage instantly — no spinner wait.
       const local = lsRead();
       if (local) {
         setState(local);
@@ -135,26 +137,59 @@ export default function BudgetApp() {
       }
       setHydrated(true);
 
-      // Fetch DB in background. Only apply if DB version is higher, meaning another device saved.
+      // Initial DB fetch — catches anything saved while this device was offline.
       const result = await dbGet();
       applyDbResult(result, !!local);
     }
     load();
 
-    // Poll every 5s so changes from another device appear quickly.
-    const poll = setInterval(async () => {
-      const result = await dbGet();
-      if (result && result.version > lastAppliedVersionRef.current) {
-        lastAppliedVersionRef.current = result.version;
-        lsWrite(result.state);
-        lsWriteVersion(result.version);
-        setState(result.state);
-      }
-    }, 5_000);
+    // ── Real-time SSE connection ───────────────────────────────────────────────
+    // The server polls Neon every 1.5 s and pushes a new event the moment it sees
+    // a version bump — so all devices update almost instantly.
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Re-fetch immediately when this tab/window becomes visible.
+    function connectSSE() {
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      es?.close();
+
+      const source = new EventSource('/api/budget/stream');
+      es = source;
+
+      source.onopen = () => setLiveStatus('live');
+
+      source.onmessage = (e) => {
+        try {
+          const { version, state: incoming } = JSON.parse(e.data) as {
+            version: number;
+            state: BudgetState;
+          };
+          if (version > lastAppliedVersionRef.current) {
+            lastAppliedVersionRef.current = version;
+            lsWrite(incoming);
+            lsWriteVersion(version);
+            setState(incoming);
+          }
+        } catch {
+          // Ignore malformed events (e.g. heartbeat comments)
+        }
+      };
+
+      source.onerror = () => {
+        setLiveStatus('offline');
+        source.close();
+        // Reconnect after 3 s — EventSource doesn't auto-reconnect when we close it
+        reconnectTimer = setTimeout(connectSSE, 3000);
+      };
+    }
+
+    connectSSE();
+
+    // When this tab becomes visible again, reconnect SSE (it may have been throttled
+    // while hidden) and do one immediate DB fetch to catch up on missed changes.
     function onVisible() {
       if (document.visibilityState !== 'visible') return;
+      connectSSE();
       dbGet().then(result => {
         if (result && result.version > lastAppliedVersionRef.current) {
           lastAppliedVersionRef.current = result.version;
@@ -167,7 +202,8 @@ export default function BudgetApp() {
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      clearInterval(poll);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
       document.removeEventListener('visibilitychange', onVisible);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -319,17 +355,33 @@ export default function BudgetApp() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <h1 className="text-lg font-bold text-green-400">Cashmap</h1>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5">
-                <div className={`w-2 h-2 rounded-full ${
-                  syncStatus === 'saved' ? 'bg-green-500' :
-                  syncStatus === 'saving' ? 'bg-yellow-400 animate-pulse' :
-                  'bg-red-500'
-                }`} />
-                <span className={`text-xs ${syncStatus === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
-                  {syncStatus === 'saved' ? 'Saved' : syncStatus === 'saving' ? 'Saving...' : 'Sync error'}
-                </span>
-              </div>
+            {/* Live connection status */}
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                liveStatus === 'live'
+                  ? 'bg-green-500 shadow-[0_0_6px_1px_rgba(34,197,94,0.6)]'
+                  : liveStatus === 'connecting'
+                  ? 'bg-yellow-400 animate-pulse'
+                  : 'bg-gray-600'
+              }`} />
+              <span className={`text-xs ${
+                liveStatus === 'live' ? 'text-green-400' :
+                liveStatus === 'connecting' ? 'text-yellow-400' :
+                'text-gray-500'
+              }`}>
+                {liveStatus === 'live' ? 'Live' : liveStatus === 'connecting' ? 'Connecting…' : 'Offline'}
+              </span>
+            </div>
+            {/* Save status + manual sync */}
+            <div className="flex items-center gap-1.5">
+              <div className={`w-1.5 h-1.5 rounded-full ${
+                syncStatus === 'saved' ? 'bg-gray-600' :
+                syncStatus === 'saving' ? 'bg-yellow-400 animate-pulse' :
+                'bg-red-500'
+              }`} />
+              {syncStatus === 'error' && (
+                <span className="text-xs text-red-400">Save failed</span>
+              )}
               <button
                 onClick={forceSync}
                 disabled={isSyncing}
