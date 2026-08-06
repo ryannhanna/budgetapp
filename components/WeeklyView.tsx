@@ -518,31 +518,32 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
               </div>
             )}
 
-            {/* Surplus debt suggestion */}
+            {/* Surplus debt suggestion — only shown when leftover covers a full payoff */}
             {leftover > 0 && (() => {
               // Only treat a debt as "paid off this period" if it's still isPaidOff —
-              // if the user un-marked it in the Debt tab, drop it from the banner.
+              // un-marking it in the Debt tab drops it from the banner.
               const periodPaidOffIds = (entry.paidOffDebtIds ?? [])
                 .filter(did => debts.find(d => d.id === did)?.isPaidOff === true);
 
               const simBals = simBalsPerPeriod[idx];
-              // Exclude debts already paid off this period or fully consumed in simulation
               const sorted = sortByStrategy(debts, state.payoffStrategy)
                 .filter(d => !entry.paidExpenseIds.includes(d.id))
                 .filter(d => !periodPaidOffIds.includes(d.id))
                 .filter(d => (simBals.get(d.id) ?? 0) > 0);
 
-              // Only show debts that will actually receive surplus (no "Next up" filler)
+              // Walk debts in priority order. Suggest only those we can FULLY pay off —
+              // stop at the first debt where the leftover falls short (no partial suggestions).
+              const rows: { debt: Debt; simBal: number }[] = [];
               let remaining = leftover;
-              const rows = sorted
-                .map(debt => {
-                  const simBal = simBals.get(debt.id) ?? debt.balance;
-                  const surplusAmount = remaining > 0 ? Math.min(remaining, simBal) : 0;
-                  const paysOff = surplusAmount > 0 && simBal <= remaining;
-                  if (surplusAmount > 0) remaining -= surplusAmount;
-                  return { debt, simBal, surplusAmount, paysOff };
-                })
-                .filter(r => r.surplusAmount > 0);
+              for (const debt of sorted) {
+                const simBal = simBals.get(debt.id) ?? debt.balance;
+                if (remaining >= simBal) {
+                  rows.push({ debt, simBal });
+                  remaining -= simBal;
+                } else {
+                  break; // Not enough to fully cover this debt — stop here
+                }
+              }
 
               if (periodPaidOffIds.length === 0 && rows.length === 0) return null;
 
@@ -565,34 +566,29 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                           </div>
                         ) : null;
                       })}
-                      {/* Remaining suggestions */}
-                      {rows.map(({ debt, simBal, surplusAmount, paysOff }) => (
+                      {/* Full-payoff suggestions only */}
+                      {rows.map(({ debt, simBal }) => (
                         <div key={debt.id} className="flex items-center justify-between text-sm gap-3">
                           <span className="text-gray-300 min-w-0">
-                            {paysOff
-                              ? <span className="text-emerald-400">Pay off </span>
-                              : <span>Extra to </span>
-                            }
+                            <span className="text-emerald-400">Pay off </span>
                             <span className="font-medium text-gray-100">{debt.name}</span>
-                            {paysOff && <span className="text-xs text-gray-500 ml-1">({fmt(simBal)} remaining)</span>}
+                            <span className="text-xs text-gray-500 ml-1">({fmt(simBal)} balance)</span>
                           </span>
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            <span className="text-emerald-400 font-semibold">{fmt(surplusAmount)}</span>
-                            {paysOff && (
-                              <button
-                                onClick={() => { fireConfetti(); onPayOffDebtViaSuggestion(debt.id, entry); }}
-                                className="flex items-center gap-1 text-xs bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-2 py-1 font-medium transition-colors"
-                              >
-                                <CheckCircle2 size={12} /> Paid
-                              </button>
-                            )}
+                            <span className="text-emerald-400 font-semibold">{fmt(simBal)}</span>
+                            <button
+                              onClick={() => { fireConfetti(); onPayOffDebtViaSuggestion(debt.id, entry); }}
+                              className="flex items-center gap-1 text-xs bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-2 py-1 font-medium transition-colors"
+                            >
+                              <CheckCircle2 size={12} /> Paid
+                            </button>
                           </div>
                         </div>
                       ))}
                     </div>
-                    {remaining > 0 && sorted.length > 0 && (
+                    {rows.length > 0 && remaining > 0 && (
                       <p className="text-xs text-gray-500 mt-2">
-                        Remaining {fmt(remaining)} goes to savings — all debts covered!
+                        {fmt(remaining)} left over goes to savings
                       </p>
                     )}
                   </div>
