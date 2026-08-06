@@ -76,6 +76,12 @@ export interface SavingsGoal {
   color: string;
 }
 
+export interface CustomPeriodItem {
+  id: string;
+  name: string;
+  amount: number;
+}
+
 export interface WeekEntry {
   weekId: string;
   startDate: string;
@@ -84,6 +90,10 @@ export interface WeekEntry {
   paidOffDebtIds: string[]; // debts paid off via the suggestion button in this period
   extraIncome: number;
   notes: string;
+  /** Per-item overrides: exclude an item or change its amount just for this period */
+  itemOverrides?: { [itemId: string]: { amount?: number; excluded?: boolean } };
+  /** One-time items added only to this period */
+  customItems?: CustomPeriodItem[];
 }
 
 export interface BudgetState {
