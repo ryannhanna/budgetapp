@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { BudgetState, Debt, Expense, IncomeStream, SavingsGoal, WeekEntry } from '@/lib/types';
+import { RefreshCw } from 'lucide-react';
 import NavTabs from './NavTabs';
 import Dashboard from './Dashboard';
 import IncomeSetup from './IncomeSetup';
@@ -84,7 +85,6 @@ async function dbPut(state: BudgetState): Promise<number | null> {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(state),
-      keepalive: true,
     });
     if (!res.ok) return null;
     const body = await res.json();
@@ -100,6 +100,7 @@ export default function BudgetApp() {
   const [state, setState] = useState<BudgetState>(DEFAULT_STATE);
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [isSyncing, setIsSyncing] = useState(false);
   const lastAppliedVersionRef = useRef(-1);
   // Always-current state reference so event handlers never close over a stale snapshot.
   // Updated synchronously at the top of every render — safe to read in callbacks.
@@ -110,6 +111,18 @@ export default function BudgetApp() {
     if (typeof window === 'undefined') return 'dashboard';
     return localStorage.getItem(LS_TAB_KEY) ?? 'dashboard';
   });
+
+  // Central helper: apply a DB result if it's newer than what we've seen.
+  const applyDbResult = useCallback((result: { state: BudgetState; version: number } | null, hasLocal: boolean) => {
+    if (!result) return;
+    if (result.version > lastAppliedVersionRef.current || (!hasLocal && result.version >= 0)) {
+      lastAppliedVersionRef.current = result.version;
+      lsWrite(result.state);
+      lsWriteVersion(result.version);
+      setState(result.state);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load on mount: show localStorage immediately, then check DB for changes from other devices.
   useEffect(() => {
@@ -124,24 +137,11 @@ export default function BudgetApp() {
 
       // Fetch DB in background. Only apply if DB version is higher, meaning another device saved.
       const result = await dbGet();
-      if (!result) return;
-      if (result.version > lastAppliedVersionRef.current) {
-        // Another device saved something newer — apply it and update localStorage.
-        lastAppliedVersionRef.current = result.version;
-        lsWrite(result.state);
-        lsWriteVersion(result.version);
-        setState(result.state);
-      } else if (!local) {
-        // No localStorage at all (first load) — use DB and populate localStorage.
-        lastAppliedVersionRef.current = result.version;
-        lsWrite(result.state);
-        lsWriteVersion(result.version);
-        setState(result.state);
-      }
+      applyDbResult(result, !!local);
     }
     load();
 
-    // Poll every 10s. Only apply if remoteVersion > lastAppliedVersion.
+    // Poll every 5s so changes from another device appear quickly.
     const poll = setInterval(async () => {
       const result = await dbGet();
       if (result && result.version > lastAppliedVersionRef.current) {
@@ -150,9 +150,9 @@ export default function BudgetApp() {
         lsWriteVersion(result.version);
         setState(result.state);
       }
-    }, 10_000);
+    }, 5_000);
 
-    // Re-fetch when tab becomes visible
+    // Re-fetch immediately when this tab/window becomes visible.
     function onVisible() {
       if (document.visibilityState !== 'visible') return;
       dbGet().then(result => {
@@ -170,6 +170,24 @@ export default function BudgetApp() {
       clearInterval(poll);
       document.removeEventListener('visibilitychange', onVisible);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Manual "pull latest from DB" — exposed to the header Sync button.
+  const forceSync = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const result = await dbGet();
+      if (result && result.version > lastAppliedVersionRef.current) {
+        lastAppliedVersionRef.current = result.version;
+        lsWrite(result.state);
+        lsWriteVersion(result.version);
+        setState(result.state);
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // update() writes to localStorage synchronously (survives refresh instantly),
@@ -181,13 +199,22 @@ export default function BudgetApp() {
     setState(next);
     lsWrite(next); // synchronous — guaranteed before any refresh
     setSyncStatus('saving');
-    dbPut(next).then(version => {
+    dbPut(next).then(async version => {
       if (version !== null) {
         lastAppliedVersionRef.current = version;
         lsWriteVersion(version); // record confirmed version so polls don't re-apply our own save
         setSyncStatus('saved');
       } else {
-        setSyncStatus('error');
+        // First attempt failed — wait 2s and retry once before giving up.
+        await new Promise(r => setTimeout(r, 2000));
+        const retry = await dbPut(stateRef.current);
+        if (retry !== null) {
+          lastAppliedVersionRef.current = retry;
+          lsWriteVersion(retry);
+          setSyncStatus('saved');
+        } else {
+          setSyncStatus('error');
+        }
       }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -292,15 +319,26 @@ export default function BudgetApp() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <h1 className="text-lg font-bold text-green-400">Cashmap</h1>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <div className={`w-2 h-2 rounded-full ${
-                syncStatus === 'saved' ? 'bg-green-500' :
-                syncStatus === 'saving' ? 'bg-yellow-400 animate-pulse' :
-                'bg-red-500'
-              }`} />
-              <span className={`text-xs ${syncStatus === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
-                {syncStatus === 'saved' ? 'Saved' : syncStatus === 'saving' ? 'Saving...' : 'Sync error'}
-              </span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <div className={`w-2 h-2 rounded-full ${
+                  syncStatus === 'saved' ? 'bg-green-500' :
+                  syncStatus === 'saving' ? 'bg-yellow-400 animate-pulse' :
+                  'bg-red-500'
+                }`} />
+                <span className={`text-xs ${syncStatus === 'error' ? 'text-red-400' : 'text-gray-500'}`}>
+                  {syncStatus === 'saved' ? 'Saved' : syncStatus === 'saving' ? 'Saving...' : 'Sync error'}
+                </span>
+              </div>
+              <button
+                onClick={forceSync}
+                disabled={isSyncing}
+                title="Pull latest from server"
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40"
+              >
+                <RefreshCw size={11} className={isSyncing ? 'animate-spin' : ''} />
+                Sync
+              </button>
             </div>
             <span className="text-xs text-gray-500">View:</span>
             <button
