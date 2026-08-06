@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { BudgetState, Debt, Expense, IncomeStream, SavingsGoal, WeekEntry } from '@/lib/types';
 import NavTabs from './NavTabs';
@@ -101,6 +101,10 @@ export default function BudgetApp() {
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const lastAppliedVersionRef = useRef(-1);
+  // Always-current state reference so event handlers never close over a stale snapshot.
+  // Updated synchronously at the top of every render — safe to read in callbacks.
+  const stateRef = useRef<BudgetState>(DEFAULT_STATE);
+  stateRef.current = state;
   // activeTab lives outside BudgetState so DB polls never reset the current tab.
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window === 'undefined') return 'dashboard';
@@ -170,8 +174,10 @@ export default function BudgetApp() {
 
   // update() writes to localStorage synchronously (survives refresh instantly),
   // then fires dbPut. Polls call setState directly and never go through update().
-  const update = (partial: Partial<BudgetState>) => {
-    const next = { ...state, ...partial };
+  // Uses stateRef.current so it always reads the live state, even if the closure
+  // was created in an earlier render (prevents stale-closure overwrites on DB sync).
+  const update = useCallback((partial: Partial<BudgetState>) => {
+    const next = { ...stateRef.current, ...partial };
     setState(next);
     lsWrite(next); // synchronous — guaranteed before any refresh
     setSyncStatus('saving');
@@ -184,76 +190,88 @@ export default function BudgetApp() {
         setSyncStatus('error');
       }
     });
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // All handlers below read from stateRef.current (always live) rather than closing
+  // over the state snapshot from the render in which they were created.
+  // This prevents a class of stale-closure bugs where a DB poll refreshes state
+  // just before a user interaction, and the interaction inadvertently overwrites
+  // the polled state when it calls dbPut with the old snapshot.
 
   // --- Income ---
   const addIncome = (stream: Omit<IncomeStream, 'id'>) =>
-    update({ incomeStreams: [...state.incomeStreams, { ...stream, id: uuid() }] });
+    update({ incomeStreams: [...stateRef.current.incomeStreams, { ...stream, id: uuid() }] });
   const updateIncome = (updated: IncomeStream) =>
-    update({ incomeStreams: state.incomeStreams.map(s => s.id === updated.id ? updated : s) });
+    update({ incomeStreams: stateRef.current.incomeStreams.map(s => s.id === updated.id ? updated : s) });
   const deleteIncome = (id: string) =>
-    update({ incomeStreams: state.incomeStreams.filter(s => s.id !== id) });
+    update({ incomeStreams: stateRef.current.incomeStreams.filter(s => s.id !== id) });
 
   // --- Expenses ---
   const addExpense = (expense: Omit<Expense, 'id'>) =>
-    update({ expenses: [...state.expenses, { ...expense, id: uuid() }] });
+    update({ expenses: [...stateRef.current.expenses, { ...expense, id: uuid() }] });
   const updateExpense = (updated: Expense) =>
-    update({ expenses: state.expenses.map(e => e.id === updated.id ? updated : e) });
+    update({ expenses: stateRef.current.expenses.map(e => e.id === updated.id ? updated : e) });
   const deleteExpense = (id: string) =>
-    update({ expenses: state.expenses.filter(e => e.id !== id) });
+    update({ expenses: stateRef.current.expenses.filter(e => e.id !== id) });
 
   // --- Debts ---
   const addDebt = (debt: Omit<Debt, 'id'>) =>
-    update({ debts: [...state.debts, { ...debt, id: uuid() }] });
+    update({ debts: [...stateRef.current.debts, { ...debt, id: uuid() }] });
   const updateDebt = (updated: Debt) =>
-    update({ debts: state.debts.map(d => d.id === updated.id ? updated : d) });
+    update({ debts: stateRef.current.debts.map(d => d.id === updated.id ? updated : d) });
   const deleteDebt = (id: string) =>
-    update({ debts: state.debts.filter(d => d.id !== id) });
+    update({ debts: stateRef.current.debts.filter(d => d.id !== id) });
   const toggleDebtPaidOff = (id: string) => {
-    const debt = state.debts.find(d => d.id === id);
-    const updatedDebts = state.debts.map(d => d.id === id ? { ...d, isPaidOff: !d.isPaidOff } : d);
+    const cur = stateRef.current;
+    const debt = cur.debts.find(d => d.id === id);
+    const updatedDebts = cur.debts.map(d => d.id === id ? { ...d, isPaidOff: !d.isPaidOff } : d);
     // When un-marking a debt as paid, clear it from paidOffDebtIds in all
     // week entries so the pay period suggestion box shows it again.
     const updatedEntries = debt?.isPaidOff
-      ? state.weekEntries.map(w => ({
+      ? cur.weekEntries.map(w => ({
           ...w,
           paidOffDebtIds: (w.paidOffDebtIds ?? []).filter(did => did !== id),
         }))
-      : state.weekEntries;
+      : cur.weekEntries;
     update({ debts: updatedDebts, weekEntries: updatedEntries });
   };
 
   // --- Savings ---
   const addGoal = (goal: Omit<SavingsGoal, 'id'>) =>
-    update({ savingsGoals: [...state.savingsGoals, { ...goal, id: uuid() }] });
+    update({ savingsGoals: [...stateRef.current.savingsGoals, { ...goal, id: uuid() }] });
   const updateGoal = (updated: SavingsGoal) =>
-    update({ savingsGoals: state.savingsGoals.map(g => g.id === updated.id ? updated : g) });
+    update({ savingsGoals: stateRef.current.savingsGoals.map(g => g.id === updated.id ? updated : g) });
   const deleteGoal = (id: string) =>
-    update({ savingsGoals: state.savingsGoals.filter(g => g.id !== id) });
+    update({ savingsGoals: stateRef.current.savingsGoals.filter(g => g.id !== id) });
 
   // --- Week Entries ---
+  // Uses stateRef so concurrent or rapid edits across two devices never overwrite
+  // each other's weekEntries due to stale closures.
   const upsertWeekEntry = (entry: WeekEntry) => {
-    const existing = state.weekEntries.find(w => w.weekId === entry.weekId);
+    const curEntries = stateRef.current.weekEntries;
+    const existing = curEntries.find(w => w.weekId === entry.weekId);
     if (existing) {
-      update({ weekEntries: state.weekEntries.map(w => w.weekId === entry.weekId ? entry : w) });
+      update({ weekEntries: curEntries.map(w => w.weekId === entry.weekId ? entry : w) });
     } else {
-      update({ weekEntries: [...state.weekEntries, entry] });
+      update({ weekEntries: [...curEntries, entry] });
     }
   };
 
   // Atomically mark a debt as paid-off AND record it in the week entry so
   // the pay period shows a confirmation instead of cascading to the next debt.
   const payOffDebtViaSuggestion = (debtId: string, entry: WeekEntry) => {
-    const updatedDebts = state.debts.map(d =>
+    const cur = stateRef.current;
+    const updatedDebts = cur.debts.map(d =>
       d.id === debtId ? { ...d, isPaidOff: true } : d
     );
     const updatedEntry: WeekEntry = {
       ...entry,
       paidOffDebtIds: [...(entry.paidOffDebtIds ?? []), debtId],
     };
-    const updatedEntries = state.weekEntries.find(w => w.weekId === entry.weekId)
-      ? state.weekEntries.map(w => w.weekId === entry.weekId ? updatedEntry : w)
-      : [...state.weekEntries, updatedEntry];
+    const updatedEntries = cur.weekEntries.find(w => w.weekId === entry.weekId)
+      ? cur.weekEntries.map(w => w.weekId === entry.weekId ? updatedEntry : w)
+      : [...cur.weekEntries, updatedEntry];
     update({ debts: updatedDebts, weekEntries: updatedEntries });
   };
 
