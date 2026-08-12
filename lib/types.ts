@@ -88,6 +88,8 @@ export interface WeekEntry {
   endDate: string;
   paidExpenseIds: string[];
   paidOffDebtIds: string[]; // debts paid off via the suggestion button in this period
+  /** Balance paid for each debt when it was marked via the suggestion button — keyed by debt ID */
+  paidOffAmounts?: { [debtId: string]: number };
   extraIncome: number;
   notes: string;
   /** Per-item overrides: exclude an item or change its amount just for this period */

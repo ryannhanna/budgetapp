@@ -11,7 +11,7 @@ interface WeeklyViewProps {
   state: BudgetState;
   onUpsertEntry: (entry: WeekEntry) => void;
   onToggleDebtPaidOff: (id: string) => void;
-  onPayOffDebtViaSuggestion: (debtId: string, entry: WeekEntry) => void;
+  onPayOffDebtViaSuggestion: (debtId: string, entry: WeekEntry, amount: number) => void;
 }
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -211,9 +211,12 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
         const simBals = simBalsPerPeriod[idx];
         const periodPaidOffIds = (entry.paidOffDebtIds ?? [])
           .filter(did => debts.find(d => d.id === did)?.isPaidOff === true);
-        const paidOffCost = periodPaidOffIds.reduce(
-          (sum, did) => sum + (simBals.get(did) ?? 0), 0
-        );
+        // Use the stored amount (recorded at click-time) so the figure is accurate
+        // even after the debt is removed from the rolling simulation.
+        const paidOffCost = periodPaidOffIds.reduce((sum, did) => {
+          const stored = entry.paidOffAmounts?.[did];
+          return sum + (stored ?? simBals.get(did) ?? 0);
+        }, 0);
 
         const exactIncome = incomeStreams
           .filter(s => s.nextPayDate)
@@ -581,7 +584,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                           <div className="flex items-center gap-2 flex-shrink-0">
                             <span className="text-emerald-400 font-semibold">{fmt(simBal)}</span>
                             <button
-                              onClick={() => { fireConfetti(); onPayOffDebtViaSuggestion(debt.id, entry); }}
+                              onClick={() => { fireConfetti(); onPayOffDebtViaSuggestion(debt.id, entry, simBal); }}
                               className="flex items-center gap-1 text-xs bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-2 py-1 font-medium transition-colors"
                             >
                               <CheckCircle2 size={12} /> Paid

@@ -323,7 +323,7 @@ export default function BudgetApp() {
 
   // Atomically mark a debt as paid-off AND record it in the week entry so
   // the pay period shows a confirmation instead of cascading to the next debt.
-  const payOffDebtViaSuggestion = (debtId: string, entry: WeekEntry) => {
+  const payOffDebtViaSuggestion = (debtId: string, entry: WeekEntry, amount: number) => {
     const cur = stateRef.current;
     const updatedDebts = cur.debts.map(d =>
       d.id === debtId ? { ...d, isPaidOff: true } : d
@@ -331,6 +331,8 @@ export default function BudgetApp() {
     const updatedEntry: WeekEntry = {
       ...entry,
       paidOffDebtIds: [...(entry.paidOffDebtIds ?? []), debtId],
+      // Store the balance at payoff time so leftover stays accurate after re-renders
+      paidOffAmounts: { ...(entry.paidOffAmounts ?? {}), [debtId]: amount },
     };
     const updatedEntries = cur.weekEntries.find(w => w.weekId === entry.weekId)
       ? cur.weekEntries.map(w => w.weekId === entry.weekId ? updatedEntry : w)
