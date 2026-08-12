@@ -206,6 +206,15 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
         const customCost = customItems.reduce((s, i) => s + i.amount, 0);
         const periodExpenses = rentPerPeriod + dueCost + customCost;
 
+        // Debts fully paid off via the suggestion button this period — their
+        // balances come out of the leftover for this period.
+        const simBals = simBalsPerPeriod[idx];
+        const periodPaidOffIds = (entry.paidOffDebtIds ?? [])
+          .filter(did => debts.find(d => d.id === did)?.isPaidOff === true);
+        const paidOffCost = periodPaidOffIds.reduce(
+          (sum, did) => sum + (simBals.get(did) ?? 0), 0
+        );
+
         const exactIncome = incomeStreams
           .filter(s => s.nextPayDate)
           .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
@@ -213,7 +222,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
           .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
           .reduce((sum, s) => sum + incomeToSemiMonthly(s.amount, s.frequency), 0);
         const periodIncome = exactIncome + fallback + entry.extraIncome;
-        const leftover = periodIncome - periodExpenses;
+        const leftover = periodIncome - periodExpenses - paidOffCost;
 
         monthTotalIncome += periodIncome;
         monthTotalExpenses += periodExpenses;
@@ -519,13 +528,8 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
             )}
 
             {/* Surplus debt suggestion — only shown when leftover covers a full payoff */}
-            {leftover > 0 && (() => {
-              // Only treat a debt as "paid off this period" if it's still isPaidOff —
-              // un-marking it in the Debt tab drops it from the banner.
-              const periodPaidOffIds = (entry.paidOffDebtIds ?? [])
-                .filter(did => debts.find(d => d.id === did)?.isPaidOff === true);
-
-              const simBals = simBalsPerPeriod[idx];
+            {(leftover > 0 || periodPaidOffIds.length > 0) && (() => {
+              // simBals and periodPaidOffIds are already computed above (used for leftover calc)
               const sorted = sortByStrategy(debts, state.payoffStrategy)
                 .filter(d => !entry.paidExpenseIds.includes(d.id))
                 .filter(d => !periodPaidOffIds.includes(d.id))
