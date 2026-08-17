@@ -1,4 +1,4 @@
-import { Debt, Expense, IncomeStream, PayFrequency } from './types';
+import { Debt, Expense, IncomeStream, PayFrequency, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from './types';
 import { incomeToSemiMonthly, isExpenseActive, isIncomeActive } from './calculations';
 
 export interface WeekRange {
@@ -8,22 +8,28 @@ export interface WeekRange {
 }
 
 /**
- * Returns exactly 2 semi-monthly pay period ranges for the given month:
- *   Period 1: 1st – 15th
- *   Period 2: 16th – last day of month
+ * Returns exactly 2 pay period ranges for the given month.
+ * Split days come from `config` (defaults to 1st and 16th if omitted).
+ *   Period 1: period1Start → period2Start - 1
+ *   Period 2: period2Start → last day of month
  */
-export function getSemiMonthlyRanges(year: number, month: number): WeekRange[] {
+export function getSemiMonthlyRanges(
+  year: number,
+  month: number,
+  config?: PayPeriodConfig,
+): WeekRange[] {
+  const { period1Start, period2Start } = config ?? DEFAULT_PAY_PERIOD_CONFIG;
   const lastDay = new Date(year, month + 1, 0).getDate();
   const mm = String(month + 1).padStart(2, '0');
   return [
     {
       weekId: `${year}-${mm}-SM1`,
-      start: new Date(year, month, 1),
-      end: new Date(year, month, 15),
+      start: new Date(year, month, period1Start),
+      end: new Date(year, month, period2Start - 1),
     },
     {
       weekId: `${year}-${mm}-SM2`,
-      start: new Date(year, month, 16),
+      start: new Date(year, month, period2Start),
       end: new Date(year, month, lastDay),
     },
   ];
@@ -314,9 +320,10 @@ export function getSemiMonthlyMonthlyLeftover(
   expenses: Expense[],
   debts: Debt[],
   year: number,
-  month: number
+  month: number,
+  config?: PayPeriodConfig,
 ): number {
-  const periods = getSemiMonthlyRanges(year, month);
+  const periods = getSemiMonthlyRanges(year, month, config);
 
   let total = 0;
   for (const period of periods) {

@@ -42,6 +42,7 @@ const DEFAULT_STATE: BudgetState = {
   payoffStrategy: 'ratio',
   viewMode: 'semi-monthly',
   weekEntries: [],
+  payPeriodConfig: { period1Start: 1, period2Start: 16 },
 };
 
 const LS_STATE_KEY = 'budget-state';
@@ -457,6 +458,7 @@ export default function BudgetApp() {
             onUpsertEntry={upsertWeekEntry}
             onToggleDebtPaidOff={toggleDebtPaidOff}
             onPayOffDebtViaSuggestion={payOffDebtViaSuggestion}
+            onUpdatePayPeriodConfig={cfg => update({ payPeriodConfig: cfg })}
           />
         )}
         {activeTab === 'savings' && (

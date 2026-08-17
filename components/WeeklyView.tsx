@@ -2,16 +2,17 @@
 
 import { useState, useRef, useEffect } from 'react';
 import confetti from 'canvas-confetti';
-import { BudgetState, Expense, Debt, WeekEntry } from '@/lib/types';
+import { BudgetState, Expense, Debt, WeekEntry, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from '@/lib/types';
 import { getSemiMonthlyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
 import { incomeToSemiMonthly, fmt, sortByStrategy, isExpenseActive, isIncomeActive } from '@/lib/calculations';
-import { ChevronLeft, ChevronRight, Lightbulb, CheckCircle2, Pencil, X, Plus, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lightbulb, CheckCircle2, Pencil, X, Plus, Check, Settings2 } from 'lucide-react';
 
 interface WeeklyViewProps {
   state: BudgetState;
   onUpsertEntry: (entry: WeekEntry) => void;
   onToggleDebtPaidOff: (id: string) => void;
   onPayOffDebtViaSuggestion: (debtId: string, entry: WeekEntry, amount: number) => void;
+  onUpdatePayPeriodConfig: (config: PayPeriodConfig) => void;
 }
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -65,22 +66,34 @@ function saveOverride(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSuggestion }: WeeklyViewProps) {
+export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSuggestion, onUpdatePayPeriodConfig }: WeeklyViewProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [editingWeekId, setEditingWeekId] = useState<string | null>(null);
   const [newItemName, setNewItemName] = useState('');
   const [newItemAmount, setNewItemAmount] = useState('');
+  const [showPeriodSettings, setShowPeriodSettings] = useState(false);
 
   const { expenses, debts, incomeStreams, weekEntries } = state;
+  const config = state.payPeriodConfig ?? DEFAULT_PAY_PERIOD_CONFIG;
+
+  // Local draft state for the period settings panel
+  const [draftP1, setDraftP1] = useState(config.period1Start);
+  const [draftP2, setDraftP2] = useState(config.period2Start);
 
   const currentPeriodRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     currentPeriodRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  const periods = getSemiMonthlyRanges(year, month);
+  const periods = getSemiMonthlyRanges(year, month, config);
+
+  // Sync draft to config whenever config changes (e.g. remote update)
+  useEffect(() => {
+    setDraftP1(config.period1Start);
+    setDraftP2(config.period2Start);
+  }, [config.period1Start, config.period2Start]);
 
   const prevMonth = () => {
     if (month === 0) { setMonth(11); setYear(y => y - 1); }
@@ -152,17 +165,105 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
   return (
     <div className="space-y-6">
       {/* Month selector */}
-      <div className="bg-gray-900 rounded-2xl p-5 shadow-lg flex items-center justify-between border border-gray-800">
-        <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors">
-          <ChevronLeft size={20} />
-        </button>
-        <div className="text-center">
-          <h2 className="text-lg font-semibold text-gray-100">{MONTH_NAMES[month]} {year}</h2>
-          <p className="text-xs text-gray-500 mt-0.5">1st–15th &amp; 16th–end of month</p>
+      <div className="bg-gray-900 rounded-2xl shadow-lg border border-gray-800 overflow-hidden">
+        <div className="p-5 flex items-center justify-between">
+          <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors">
+            <ChevronLeft size={20} />
+          </button>
+          <div className="text-center">
+            <h2 className="text-lg font-semibold text-gray-100">{MONTH_NAMES[month]} {year}</h2>
+            <button
+              onClick={() => setShowPeriodSettings(v => !v)}
+              className="mt-0.5 flex items-center gap-1 mx-auto text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <Settings2 size={11} />
+              {config.period1Start}th–{config.period2Start - 1}th &amp; {config.period2Start}th–end
+            </button>
+          </div>
+          <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors">
+            <ChevronRight size={20} />
+          </button>
         </div>
-        <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors">
-          <ChevronRight size={20} />
-        </button>
+
+        {/* Pay period settings panel */}
+        {showPeriodSettings && (
+          <div className="border-t border-gray-800 px-5 py-4 space-y-4 bg-gray-950/40">
+            <p className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+              <Settings2 size={12} /> Customise Pay Period Split Days
+            </p>
+            <p className="text-xs text-gray-500">
+              Set the day each period starts. Period 1 runs from day <strong className="text-gray-400">{draftP1}</strong> to day <strong className="text-gray-400">{draftP2 - 1}</strong>; Period 2 runs from day <strong className="text-gray-400">{draftP2}</strong> to end of month.
+            </p>
+            <div className="flex items-center gap-6 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400 whitespace-nowrap">Period 1 starts on day</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={27}
+                  value={draftP1}
+                  onChange={e => {
+                    const v = Math.max(1, Math.min(27, parseInt(e.target.value) || 1));
+                    setDraftP1(v);
+                    if (draftP2 <= v) setDraftP2(v + 1);
+                  }}
+                  className="w-16 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-center text-sm text-gray-200 focus:ring-1 focus:ring-blue-600 outline-none"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400 whitespace-nowrap">Period 2 starts on day</label>
+                <input
+                  type="number"
+                  min={2}
+                  max={28}
+                  value={draftP2}
+                  onChange={e => {
+                    const v = Math.max(draftP1 + 1, Math.min(28, parseInt(e.target.value) || 16));
+                    setDraftP2(v);
+                  }}
+                  className="w-16 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-center text-sm text-gray-200 focus:ring-1 focus:ring-blue-600 outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Validation hint */}
+            {draftP2 <= draftP1 && (
+              <p className="text-xs text-red-400">Period 2 start must be after Period 1 start.</p>
+            )}
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                disabled={draftP2 <= draftP1}
+                onClick={() => {
+                  onUpdatePayPeriodConfig({ period1Start: draftP1, period2Start: draftP2 });
+                  setShowPeriodSettings(false);
+                }}
+                className="bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg px-4 py-1.5 text-sm font-medium transition-colors"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => {
+                  setDraftP1(config.period1Start);
+                  setDraftP2(config.period2Start);
+                  setShowPeriodSettings(false);
+                }}
+                className="bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setDraftP1(DEFAULT_PAY_PERIOD_CONFIG.period1Start);
+                  setDraftP2(DEFAULT_PAY_PERIOD_CONFIG.period2Start);
+                }}
+                className="ml-auto text-xs text-gray-600 hover:text-gray-400 transition-colors"
+              >
+                Reset to default (1st &amp; 16th)
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Pay period cards */}

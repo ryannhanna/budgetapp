@@ -98,6 +98,18 @@ export interface WeekEntry {
   customItems?: CustomPeriodItem[];
 }
 
+export interface PayPeriodConfig {
+  /** Day of month period 1 starts (1–28). Default: 1 */
+  period1Start: number;
+  /** Day of month period 2 starts (1–28), must be > period1Start. Default: 16 */
+  period2Start: number;
+}
+
+export const DEFAULT_PAY_PERIOD_CONFIG: PayPeriodConfig = {
+  period1Start: 1,
+  period2Start: 16,
+};
+
 export interface BudgetState {
   incomeStreams: IncomeStream[];
   expenses: Expense[];
@@ -106,4 +118,6 @@ export interface BudgetState {
   payoffStrategy: PayoffStrategy;
   viewMode: 'semi-monthly' | 'monthly';
   weekEntries: WeekEntry[];
+  /** Custom pay period split days; defaults to 1st and 16th if omitted */
+  payPeriodConfig?: PayPeriodConfig;
 }
