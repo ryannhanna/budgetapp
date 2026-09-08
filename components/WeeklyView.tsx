@@ -453,6 +453,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                   {/* Custom one-time items */}
                   {customItems.map(ci => {
                     const paid = entry.paidExpenseIds.includes(ci.id);
+                    const isCredit = ci.amount < 0;
                     return (
                       <div key={ci.id} className="flex items-center justify-between text-sm py-1">
                         <div className="flex items-center gap-2">
@@ -463,9 +464,14 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                             className="w-4 h-4 rounded accent-green-500 cursor-pointer"
                           />
                           <span className={paid ? 'line-through text-gray-600' : 'text-gray-300'}>{ci.name}</span>
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400">one-time</span>
+                          {isCredit
+                            ? <span className="text-xs px-1.5 py-0.5 rounded bg-green-900/30 text-green-400">credit</span>
+                            : <span className="text-xs px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400">one-time</span>
+                          }
                         </div>
-                        <span className={paid ? 'text-gray-600 line-through' : 'text-gray-200'}>{fmt(ci.amount)}</span>
+                        <span className={paid ? 'text-gray-600 line-through' : isCredit ? 'text-green-400 font-medium' : 'text-gray-200'}>
+                          {isCredit ? '+' : ''}{fmt(Math.abs(ci.amount))}
+                        </span>
                       </div>
                     );
                   })}
@@ -553,35 +559,50 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                 {/* Custom items already added */}
                 {customItems.length > 0 && (
                   <div className="space-y-2 pt-2 border-t border-gray-800">
-                    <p className="text-xs text-gray-500">Added for this period</p>
-                    {customItems.map(ci => (
-                      <div key={ci.id} className="flex items-center gap-2">
-                        <button
-                          onClick={() => onUpsertEntry({ ...entry, customItems: customItems.filter(i => i.id !== ci.id) })}
-                          className="text-red-500 hover:text-red-400 flex-shrink-0 transition-colors"
-                          title="Remove"
-                        >
-                          <X size={14} />
-                        </button>
-                        <span className="flex-1 text-sm text-gray-300 min-w-0 truncate">{ci.name}</span>
-                        <input
-                          type="number"
-                          value={ci.amount}
-                          min={0}
-                          onChange={ev => onUpsertEntry({
-                            ...entry,
-                            customItems: customItems.map(i => i.id === ci.id ? { ...i, amount: parseFloat(ev.target.value) || 0 } : i),
-                          })}
-                          className="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-right text-sm text-gray-200 focus:ring-1 focus:ring-blue-600 outline-none"
-                        />
-                      </div>
-                    ))}
+                    <p className="text-xs text-gray-500">
+                      Added for this period
+                      <span className="ml-1 text-gray-600">· negative = extra income / credit</span>
+                    </p>
+                    {customItems.map(ci => {
+                      const isCredit = ci.amount < 0;
+                      return (
+                        <div key={ci.id} className="flex items-center gap-2">
+                          <button
+                            onClick={() => onUpsertEntry({ ...entry, customItems: customItems.filter(i => i.id !== ci.id) })}
+                            className="text-red-500 hover:text-red-400 flex-shrink-0 transition-colors"
+                            title="Remove"
+                          >
+                            <X size={14} />
+                          </button>
+                          <span className={`flex-1 text-sm min-w-0 truncate ${isCredit ? 'text-green-400' : 'text-gray-300'}`}>
+                            {ci.name}
+                          </span>
+                          <input
+                            type="number"
+                            value={ci.amount}
+                            onChange={ev => {
+                              const v = parseFloat(ev.target.value);
+                              onUpsertEntry({
+                                ...entry,
+                                customItems: customItems.map(i => i.id === ci.id ? { ...i, amount: isNaN(v) ? 0 : v } : i),
+                              });
+                            }}
+                            className={`w-24 bg-gray-800 border rounded px-2 py-1 text-right text-sm focus:ring-1 focus:ring-blue-600 outline-none ${
+                              isCredit ? 'border-green-700 text-green-400' : 'border-gray-700 text-gray-200'
+                            }`}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
                 {/* Add one-time item */}
-                <div className="flex items-center gap-2 pt-2 border-t border-gray-800">
-                  <Plus size={14} className="text-gray-500 flex-shrink-0" />
+                <div className="space-y-1.5 pt-2 border-t border-gray-800">
+                  <p className="text-xs text-gray-600 flex items-center gap-1">
+                    <Plus size={11} /> Add item · use a <span className="text-green-500 font-medium">negative amount</span> to add income / credit
+                  </p>
+                  <div className="flex items-center gap-2">
                   <input
                     type="text"
                     placeholder="Item name"
@@ -590,7 +611,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         const amt = parseFloat(newItemAmount);
-                        if (!newItemName.trim() || isNaN(amt) || amt <= 0) return;
+                        if (!newItemName.trim() || isNaN(amt) || amt === 0) return;
                         const ci = { id: `custom-${Date.now()}`, name: newItemName.trim(), amount: amt };
                         onUpsertEntry({ ...entry, customItems: [...customItems, ci] });
                         setNewItemName(''); setNewItemAmount('');
@@ -600,25 +621,26 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                   />
                   <input
                     type="number"
-                    placeholder="Amount"
+                    placeholder="±Amount"
                     value={newItemAmount}
-                    min={0}
                     onChange={e => setNewItemAmount(e.target.value)}
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         const amt = parseFloat(newItemAmount);
-                        if (!newItemName.trim() || isNaN(amt) || amt <= 0) return;
+                        if (!newItemName.trim() || isNaN(amt) || amt === 0) return;
                         const ci = { id: `custom-${Date.now()}`, name: newItemName.trim(), amount: amt };
                         onUpsertEntry({ ...entry, customItems: [...customItems, ci] });
                         setNewItemName(''); setNewItemAmount('');
                       }
                     }}
-                    className="w-24 bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:ring-1 focus:ring-blue-600 outline-none"
+                    className={`w-24 bg-gray-800 border rounded px-2.5 py-1.5 text-sm placeholder-gray-600 focus:ring-1 focus:ring-blue-600 outline-none ${
+                      parseFloat(newItemAmount) < 0 ? 'border-green-700 text-green-400' : 'border-gray-700 text-gray-200'
+                    }`}
                   />
                   <button
                     onClick={() => {
                       const amt = parseFloat(newItemAmount);
-                      if (!newItemName.trim() || isNaN(amt) || amt <= 0) return;
+                      if (!newItemName.trim() || isNaN(amt) || amt === 0) return;
                       const ci = { id: `custom-${Date.now()}`, name: newItemName.trim(), amount: amt };
                       onUpsertEntry({ ...entry, customItems: [...customItems, ci] });
                       setNewItemName(''); setNewItemAmount('');
@@ -627,6 +649,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                   >
                     Add
                   </button>
+                  </div>
                 </div>
               </div>
             )}
