@@ -9,6 +9,7 @@ type FormData = Omit<Debt, 'id'>;
 const EMPTY: FormData = {
   name: '', balance: 0, minimumPayment: 0, interestRate: undefined,
   dueDay: undefined, dueWeekday: undefined, owner: 'me', isPaidOff: false,
+  startDate: undefined,
 };
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -22,7 +23,7 @@ interface DebtFormProps {
 export default function DebtForm({ initial, onSave, onCancel }: DebtFormProps) {
   const [form, setForm] = useState<FormData>(
     initial
-      ? { name: initial.name, balance: initial.balance, minimumPayment: initial.minimumPayment, interestRate: initial.interestRate, dueDay: initial.dueDay, dueWeekday: initial.dueWeekday, owner: initial.owner, isPaidOff: initial.isPaidOff }
+      ? { name: initial.name, balance: initial.balance, minimumPayment: initial.minimumPayment, interestRate: initial.interestRate, dueDay: initial.dueDay, dueWeekday: initial.dueWeekday, owner: initial.owner, isPaidOff: initial.isPaidOff, startDate: initial.startDate }
       : EMPTY
   );
   const [errors, setErrors] = useState<{ name?: string; balance?: string; minimumPayment?: string }>({});
@@ -89,6 +90,14 @@ export default function DebtForm({ initial, onSave, onCancel }: DebtFormProps) {
               <option value="joint">Joint</option>
             </select>
           </Field>
+          <Field label="Start date (optional)" hint="Debt won't appear in pay periods or totals before this date">
+            <input
+              type="date"
+              className="input w-full"
+              value={form.startDate ?? ''}
+              onChange={e => setForm(f => ({ ...f, startDate: e.target.value || undefined }))}
+            />
+          </Field>
         </div>
         <div className="flex gap-3 mt-6">
           <button onClick={onCancel} className="flex-1 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium transition-colors">Cancel</button>
@@ -101,11 +110,12 @@ export default function DebtForm({ initial, onSave, onCancel }: DebtFormProps) {
   );
 }
 
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
+function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: React.ReactNode }) {
   return (
     <div>
       <label className="block text-xs text-gray-400 mb-1">{label}</label>
       {children}
+      {hint && !error && <p className="text-gray-600 text-xs mt-1">{hint}</p>}
       {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
     </div>
   );

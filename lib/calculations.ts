@@ -105,8 +105,19 @@ export function getTotalExpenses(expenses: Expense[], mode: 'semi-monthly' | 'bi
   }, 0);
 }
 
-export function getTotalDebtMinimums(debts: Debt[]): number {
-  return debts.filter(d => !d.isPaidOff).reduce((sum, d) => sum + d.minimumPayment, 0);
+/** Returns false if asOf is before the debt's startDate, or if the debt is paid off. */
+export function isDebtActive(debt: Debt, asOf: Date = new Date()): boolean {
+  if (debt.isPaidOff) return false;
+  if (debt.startDate) {
+    const start = new Date(debt.startDate + 'T00:00:00');
+    const asOfDay = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+    if (asOfDay < start) return false;
+  }
+  return true;
+}
+
+export function getTotalDebtMinimums(debts: Debt[], asOf: Date = new Date()): number {
+  return debts.filter(d => isDebtActive(d, asOf)).reduce((sum, d) => sum + d.minimumPayment, 0);
 }
 
 export function debtRatio(debt: Debt): number {

@@ -1,5 +1,5 @@
 import { Debt, Expense, IncomeStream, PayFrequency, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from './types';
-import { incomeToSemiMonthly, isExpenseActive, isIncomeActive } from './calculations';
+import { incomeToSemiMonthly, isExpenseActive, isIncomeActive, isDebtActive } from './calculations';
 
 export interface WeekRange {
   weekId: string;
@@ -145,7 +145,7 @@ export function getExpensesDueInWeek(
   }
 
   for (const debt of debts) {
-    if (debt.isPaidOff) continue;
+    if (!isDebtActive(debt, weekStart)) continue;
     if (debt.dueDay !== undefined) {
       if (daysInWeek.some(d => d.getDate() === debt.dueDay)) {
         results.push({ item: debt, type: 'debt' });
@@ -283,7 +283,7 @@ export function getUpcomingPayments(
 
   const items: Array<{ item: Expense | Debt; type: 'expense' | 'debt' }> = [
     ...expenses.filter(e => isExpenseActive(e, now)).map(e => ({ item: e as Expense | Debt, type: 'expense' as const })),
-    ...debts.filter(d => !d.isPaidOff).map(d => ({ item: d as Expense | Debt, type: 'debt' as const })),
+    ...debts.filter(d => isDebtActive(d, now)).map(d => ({ item: d as Expense | Debt, type: 'debt' as const })),
   ];
 
   for (const { item, type } of items) {

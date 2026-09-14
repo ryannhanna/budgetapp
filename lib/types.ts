@@ -66,6 +66,8 @@ export interface Debt {
   dueWeekday?: string;
   owner: DebtOwner;
   isPaidOff: boolean;
+  /** ISO date (YYYY-MM-DD); debt is excluded from all calculations before this date */
+  startDate?: string;
 }
 
 export interface SavingsGoal {

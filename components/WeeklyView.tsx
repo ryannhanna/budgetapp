@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { BudgetState, Expense, Debt, WeekEntry, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from '@/lib/types';
 import { getSemiMonthlyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
-import { incomeToSemiMonthly, fmt, sortByStrategy, isExpenseActive, isIncomeActive } from '@/lib/calculations';
+import { incomeToSemiMonthly, fmt, sortByStrategy, isExpenseActive, isIncomeActive, isDebtActive } from '@/lib/calculations';
 import { ChevronLeft, ChevronRight, Lightbulb, CheckCircle2, Pencil, X, Plus, Check, Settings2 } from 'lucide-react';
 
 interface WeeklyViewProps {
@@ -108,6 +108,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
   let monthTotalExpenses = 0;
 
   // Pre-compute rolling simulated debt balances applying per-period overrides.
+  // All non-paid-off debts start in the map; isDebtActive() gates them per-period.
   const simBalsPerPeriod: Map<string, number>[] = [];
   {
     const rolling = new Map(
@@ -658,6 +659,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
             {(leftover > 0 || periodPaidOffIds.length > 0) && (() => {
               // simBals and periodPaidOffIds are already computed above (used for leftover calc)
               const sorted = sortByStrategy(debts, state.payoffStrategy)
+                .filter(d => isDebtActive(d, period.start))
                 .filter(d => !entry.paidExpenseIds.includes(d.id))
                 .filter(d => !periodPaidOffIds.includes(d.id))
                 .filter(d => (simBals.get(d.id) ?? 0) > 0);

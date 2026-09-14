@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { BudgetState, Debt, PayoffStrategy } from '@/lib/types';
-import { getTotalDebtMinimums, fmt } from '@/lib/calculations';
+import { getTotalDebtMinimums, isDebtActive, fmt } from '@/lib/calculations';
 import { Plus, Pencil, Trash2, CheckCircle2, Circle } from 'lucide-react';
 import DebtForm from './DebtForm';
 import PayoffTimeline from './PayoffTimeline';
@@ -130,6 +130,7 @@ function DebtRow({ debt, onEdit, onDelete, onToggle }: {
     if (!debt.isPaidOff) fireConfetti();
     onToggle(debt.id);
   };
+  const isFuture = !debt.isPaidOff && !isDebtActive(debt);
 
   return (
     <div className={`flex items-center justify-between px-5 py-3 hover:bg-gray-800/30 transition-colors ${debt.isPaidOff ? 'opacity-50' : ''}`}>
@@ -138,8 +139,13 @@ function DebtRow({ debt, onEdit, onDelete, onToggle }: {
           {debt.isPaidOff ? <CheckCircle2 size={18} /> : <Circle size={18} className="text-gray-600" />}
         </button>
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <p className={`text-sm font-medium ${debt.isPaidOff ? 'line-through text-gray-500' : 'text-gray-200'}`}>{debt.name}</p>
+            {isFuture && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-400 font-medium">
+                upcoming
+              </span>
+            )}
             {debt.owner !== 'me' && (
               <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
                 debt.owner === 'partner' ? 'bg-purple-900/40 text-purple-400' : 'bg-blue-900/40 text-blue-400'
@@ -152,6 +158,7 @@ function DebtRow({ debt, onEdit, onDelete, onToggle }: {
             Min: {fmt(debt.minimumPayment)}
             {debt.interestRate ? ` · ${debt.interestRate}% APR` : ''}
             {debt.dueDay ? ` · Due ${debt.dueDay}th` : ''}
+            {debt.startDate ? ` · Starts ${new Date(debt.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}
           </p>
         </div>
       </div>
