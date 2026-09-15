@@ -380,7 +380,6 @@ export function getRolledDownBalances(
 
   for (const period of periods) {
     const pEntry = weekEntries.find(w => w.weekId === period.weekId);
-    const paidIds = pEntry?.paidExpenseIds ?? [];
     const ov = pEntry?.itemOverrides ?? {};
     const customItems = pEntry?.customItems ?? [];
 

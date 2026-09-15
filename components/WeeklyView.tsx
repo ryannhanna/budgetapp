@@ -117,7 +117,6 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
     for (const period of periods) {
       simBalsPerPeriod.push(new Map(rolling));
       const pEntry = weekEntries.find(w => w.weekId === period.weekId);
-      const paidIds = pEntry?.paidExpenseIds ?? [];
       const ov = pEntry?.itemOverrides ?? {};
       const customItems = pEntry?.customItems ?? [];
 
