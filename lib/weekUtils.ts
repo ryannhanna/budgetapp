@@ -414,8 +414,10 @@ export function getRolledDownBalances(
     const periodPaidOff = pEntry?.paidOffDebtIds ?? [];
 
     if (pLeftover > 0 && periodPaidOff.length === 0) {
+      // No isDebtActive filter here — if surplus is large enough it can wipe out
+      // upcoming (future-startDate) debts too, matching the suggestion's behavior.
+      // sortByStrategy already excludes isPaidOff debts.
       const sorted = sortByStrategy(debts, strategy)
-        .filter(d => isDebtActive(d, period.start))
         .filter(d => !paidIds.includes(d.id));
       let rem = pLeftover;
       for (const debt of sorted) {
