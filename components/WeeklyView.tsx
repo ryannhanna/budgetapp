@@ -150,10 +150,11 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
       const periodPaidOff = pEntry?.paidOffDebtIds ?? [];
 
       if (pLeftover > 0 && periodPaidOff.length === 0) {
-        // No isDebtActive filter — large surplus can zero upcoming (future-startDate)
-        // debts too. sortByStrategy already excludes isPaidOff debts.
-        const sorted = sortByStrategy(debts, state.payoffStrategy)
-          .filter(d => !paidIds.includes(d.id));
+        // No isDebtActive filter — large surplus can zero upcoming debts too.
+        // No paidIds filter — checking a minimum payment off should not prevent
+        // extra surplus from being applied to reduce that debt's balance.
+        // sortByStrategy already excludes isPaidOff debts.
+        const sorted = sortByStrategy(debts, state.payoffStrategy);
         let rem = pLeftover;
         for (const debt of sorted) {
           if (rem <= 0) break;
