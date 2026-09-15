@@ -367,9 +367,12 @@ export function getRolledDownBalances(
 ): Map<string, number> {
   const now = new Date();
 
-  // Simulate the current month's semi-monthly periods that have already started.
-  const periods = getSemiMonthlyRanges(now.getFullYear(), now.getMonth(), config)
-    .filter(p => p.start <= now);
+  // Simulate ALL semi-monthly periods in the current month (not just started ones).
+  // This lets a large one-time income arriving later in the month (e.g. on the 16th
+  // when today is the 15th) be counted in the rolled-down starting balances, so the
+  // payoff timeline correctly reflects paying off debts this month rather than
+  // projecting them out into future months via the regular monthly-average income.
+  const periods = getSemiMonthlyRanges(now.getFullYear(), now.getMonth(), config);
 
   const rolling = new Map<string, number>(
     debts.filter(d => !d.isPaidOff).map(d => [d.id, d.balance]),
