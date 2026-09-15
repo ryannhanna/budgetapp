@@ -663,7 +663,9 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
             {(leftover > 0 || periodPaidOffIds.length > 0) && (() => {
               // simBals and periodPaidOffIds are already computed above (used for leftover calc)
               const sorted = sortByStrategy(debts, state.payoffStrategy)
-                .filter(d => isDebtActive(d, period.start))
+                // Do NOT filter by isDebtActive here — if you have enough surplus you
+                // can pay off any debt, including "upcoming" (future-startDate) ones.
+                // sortByStrategy already excludes isPaidOff debts.
                 .filter(d => !entry.paidExpenseIds.includes(d.id))
                 .filter(d => !periodPaidOffIds.includes(d.id))
                 // Use the original stored balance for filtering — simBals might show 0 if a
@@ -730,7 +732,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                         </div>
                       ))}
                     </div>
-                    {rows.length > 0 && remaining > 0 && (
+                    {rows.length > 0 && remaining > 0 && rows.length === sorted.length && (
                       <p className="text-xs text-gray-500 mt-2">
                         {fmt(remaining)} left over goes to savings
                       </p>
