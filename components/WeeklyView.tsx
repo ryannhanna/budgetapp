@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { BudgetState, Expense, Debt, WeekEntry, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from '@/lib/types';
 import { getSemiMonthlyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
-import { incomeToSemiMonthly, fmt, sortByStrategy, isExpenseActive, isIncomeActive, isDebtActive } from '@/lib/calculations';
+import { incomeToSemiMonthly, fmt, sortByStrategy, isExpenseActive, isIncomeActive } from '@/lib/calculations';
 import { ChevronLeft, ChevronRight, Lightbulb, CheckCircle2, Pencil, X, Plus, Check, Settings2 } from 'lucide-react';
 
 interface WeeklyViewProps {
