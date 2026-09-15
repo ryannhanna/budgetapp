@@ -178,12 +178,15 @@ export function calculatePayoffTimeline(
     month++;
 
     // Recompute leftover each month so future income/expense start dates are reflected
+    // and so freed minimums from paid-off debts correctly increase the extra payment.
     let extra: number;
     if (incomeStreams && expenses) {
       const simDate = new Date(now.getFullYear(), now.getMonth() + month, 1);
       const simIncome = getTotalIncome(incomeStreams, 'monthly', simDate);
       const simExpenses = getTotalExpenses(expenses, 'monthly', simDate);
-      const simMins = getTotalDebtMinimums(debts);
+      // Use working balances (not original debts) so paid-off debts no longer
+      // reduce the available extra — this is what enables the cascade effect.
+      const simMins = working.filter(d => d.balance > 0).reduce((s, d) => s + d.minimumPayment, 0);
       extra = Math.max(0, simIncome - simExpenses - simMins) + extraPayment;
     } else {
       extra = monthlyLeftover + extraPayment;
