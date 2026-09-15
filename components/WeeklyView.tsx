@@ -150,14 +150,18 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
       const periodPaidOff = pEntry?.paidOffDebtIds ?? [];
 
       if (pLeftover > 0 && periodPaidOff.length === 0) {
-        const sorted = sortByStrategy(debts, state.payoffStrategy).filter(d => !paidIds.includes(d.id));
+        const sorted = sortByStrategy(debts, state.payoffStrategy)
+          .filter(d => isDebtActive(d, period.start))
+          .filter(d => !paidIds.includes(d.id));
         let rem = pLeftover;
         for (const debt of sorted) {
           if (rem <= 0) break;
           const cur = rolling.get(debt.id) ?? 0;
           if (cur <= 0) continue;
-          rolling.set(debt.id, 0);
-          rem -= cur;
+          // Partial payment: reduce by however much leftover remains, not always to $0
+          const payment = Math.min(cur, rem);
+          rolling.set(debt.id, cur - payment);
+          rem -= payment;
         }
       }
     }

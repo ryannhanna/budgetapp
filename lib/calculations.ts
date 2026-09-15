@@ -159,13 +159,20 @@ export function calculatePayoffTimeline(
   monthlyLeftover: number,
   extraPayment: number,
   incomeStreams?: IncomeStream[],
-  expenses?: Expense[]
+  expenses?: Expense[],
+  /** Optional pre-rolled balances (e.g. from getRolledDownBalances). When
+   *  provided, the simulation starts from these balances instead of each
+   *  debt's stored balance, so it agrees with the pay-period view. */
+  startingBalances?: Map<string, number>
 ): PayoffResult {
   const sorted = sortByStrategy(debts, strategy);
   if (sorted.length === 0) return { events: [], totalInterestPaid: 0, payoffDate: null, monthsToFree: 0 };
 
-  // Deep clone debts for simulation
-  const working = sorted.map(d => ({ ...d }));
+  // Deep clone debts for simulation, optionally seeding with rolled-down balances
+  const working = sorted.map(d => ({
+    ...d,
+    balance: startingBalances?.get(d.id) ?? d.balance,
+  }));
   const events: PayoffEvent[] = [];
   let totalInterestPaid = 0;
   const now = new Date();

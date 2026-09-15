@@ -1,5 +1,5 @@
-import { Debt, Expense, IncomeStream, PayFrequency, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from './types';
-import { incomeToSemiMonthly, isExpenseActive, isIncomeActive, isDebtActive } from './calculations';
+import { Debt, Expense, IncomeStream, PayFrequency, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG, WeekEntry, PayoffStrategy } from './types';
+import { incomeToSemiMonthly, isExpenseActive, isIncomeActive, isDebtActive, sortByStrategy } from './calculations';
 
 export interface WeekRange {
   weekId: string;
@@ -346,4 +346,85 @@ export function getSemiMonthlyMonthlyLeftover(
   }
 
   return Math.max(0, total);
+}
+
+/**
+ * Runs the same rolling extra-payment simulation as WeeklyView's simBalsPerPeriod,
+ * but for ALL semi-monthly periods from the beginning of the current month up to
+ * (and including) the current period. Returns a map of debt ID → rolled-down balance.
+ *
+ * Used by PayoffTimeline so it starts the projection from the same balances the
+ * pay-period view uses — rather than the original stored balances — giving both
+ * views a consistent payoff month.
+ */
+export function getRolledDownBalances(
+  debts: Debt[],
+  incomeStreams: IncomeStream[],
+  expenses: Expense[],
+  weekEntries: WeekEntry[],
+  strategy: PayoffStrategy,
+  config: PayPeriodConfig = DEFAULT_PAY_PERIOD_CONFIG,
+): Map<string, number> {
+  const now = new Date();
+
+  // Simulate the current month's semi-monthly periods that have already started.
+  const periods = getSemiMonthlyRanges(now.getFullYear(), now.getMonth(), config)
+    .filter(p => p.start <= now);
+
+  const rolling = new Map<string, number>(
+    debts.filter(d => !d.isPaidOff).map(d => [d.id, d.balance]),
+  );
+
+  for (const period of periods) {
+    const pEntry = weekEntries.find(w => w.weekId === period.weekId);
+    const paidIds = pEntry?.paidExpenseIds ?? [];
+    const ov = pEntry?.itemOverrides ?? {};
+    const customItems = pEntry?.customItems ?? [];
+
+    const excludedSet = new Set(
+      Object.entries(ov).filter(([, v]) => v.excluded).map(([k]) => k),
+    );
+
+    const activeExp = expenses.filter(e => isExpenseActive(e, period.start));
+    const rentExp = activeExp.filter(e => e.name.toLowerCase() === 'rent' && !excludedSet.has(e.id));
+    const nonRentExp = activeExp.filter(e => e.name.toLowerCase() !== 'rent' && !excludedSet.has(e.id));
+
+    const due = getExpensesDueInWeek(nonRentExp, debts, period.start, period.end);
+    const filteredDue = due.filter(({ item }) => !excludedSet.has(item.id));
+
+    const rentPer = rentExp.reduce((s, e) => s + (ov[e.id]?.amount ?? e.amount), 0) / 2;
+    const dueCost = filteredDue.reduce((s, { item, type }) => {
+      const base = type === 'expense' ? (item as Expense).amount : (item as Debt).minimumPayment;
+      return s + (ov[item.id]?.amount ?? base);
+    }, 0);
+    const customCost = customItems.reduce((s, i) => s + i.amount, 0);
+
+    const exactInc = incomeStreams
+      .filter(s => s.nextPayDate)
+      .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
+    const fallback = incomeStreams
+      .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
+      .reduce((sum, s) => sum + incomeToSemiMonthly(s.amount, s.frequency), 0);
+
+    const pLeftover = (exactInc + fallback + (pEntry?.extraIncome ?? 0))
+      - (dueCost + rentPer + customCost);
+    const periodPaidOff = pEntry?.paidOffDebtIds ?? [];
+
+    if (pLeftover > 0 && periodPaidOff.length === 0) {
+      const sorted = sortByStrategy(debts, strategy)
+        .filter(d => isDebtActive(d, period.start))
+        .filter(d => !paidIds.includes(d.id));
+      let rem = pLeftover;
+      for (const debt of sorted) {
+        if (rem <= 0) break;
+        const cur = rolling.get(debt.id) ?? 0;
+        if (cur <= 0) continue;
+        const payment = Math.min(cur, rem);
+        rolling.set(debt.id, cur - payment);
+        rem -= payment;
+      }
+    }
+  }
+
+  return rolling;
 }

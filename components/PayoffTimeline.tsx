@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { BudgetState, PayoffStrategy } from '@/lib/types';
+import { useMemo, useState } from 'react';
+import { BudgetState, DEFAULT_PAY_PERIOD_CONFIG, PayoffStrategy } from '@/lib/types';
 import { calculatePayoffTimeline, getTotalIncome, getTotalExpenses, getTotalDebtMinimums, fmt } from '@/lib/calculations';
+import { getRolledDownBalances } from '@/lib/weekUtils';
 import { TrendingDown } from 'lucide-react';
 
 interface PayoffTimelineProps {
@@ -17,7 +18,8 @@ const STRATEGIES: { id: PayoffStrategy; label: string; desc: string }[] = [
 ];
 
 export default function PayoffTimeline({ state, onStrategyChange }: PayoffTimelineProps) {
-  const { debts, payoffStrategy, incomeStreams, expenses } = state;
+  const { debts, payoffStrategy, incomeStreams, expenses, weekEntries } = state;
+  const config = state.payPeriodConfig ?? DEFAULT_PAY_PERIOD_CONFIG;
   const [extraPayment, setExtraPayment] = useState(0);
 
   const monthlyIncome = getTotalIncome(incomeStreams, 'monthly');
@@ -25,7 +27,16 @@ export default function PayoffTimeline({ state, onStrategyChange }: PayoffTimeli
   const monthlyDebtMins = getTotalDebtMinimums(debts);
   const monthlyLeftover = Math.max(0, monthlyIncome - monthlyExpenses - monthlyDebtMins);
 
-  const result = calculatePayoffTimeline(debts, payoffStrategy, monthlyLeftover, extraPayment, incomeStreams, expenses);
+  // Seed the simulation with balances rolled down by the current month's already-
+  // started pay periods, so the timeline agrees with the pay-period view on which
+  // month each debt gets paid off.
+  const startingBalances = useMemo(
+    () => getRolledDownBalances(debts, incomeStreams, expenses, weekEntries, payoffStrategy, config),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [debts, incomeStreams, expenses, weekEntries, payoffStrategy, config.period1Start, config.period2Start],
+  );
+
+  const result = calculatePayoffTimeline(debts, payoffStrategy, monthlyLeftover, extraPayment, incomeStreams, expenses, startingBalances);
 
   return (
     <div className="space-y-6">
