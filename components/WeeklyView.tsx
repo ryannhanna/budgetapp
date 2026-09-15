@@ -663,14 +663,14 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
             {(leftover > 0 || periodPaidOffIds.length > 0) && (() => {
               // simBals and periodPaidOffIds are already computed above (used for leftover calc)
               const sorted = sortByStrategy(debts, state.payoffStrategy)
-                // Do NOT filter by isDebtActive here — if you have enough surplus you
-                // can pay off any debt, including "upcoming" (future-startDate) ones.
+                // Do NOT filter by isDebtActive — large surplus can pay off upcoming debts too.
+                // Do NOT filter by paidExpenseIds — checking a minimum payment checkbox should
+                // never prevent suggesting a full payoff of that debt.
                 // sortByStrategy already excludes isPaidOff debts.
-                .filter(d => !entry.paidExpenseIds.includes(d.id))
                 .filter(d => !periodPaidOffIds.includes(d.id))
-                // Use the original stored balance for filtering — simBals might show 0 if a
-                // previous period's projected leftover "consumed" the debt, but the user
-                // hasn't actually confirmed that payment yet.
+                // Use the original stored balance — simBals may show 0 when a previous
+                // period's projected leftover consumed the debt, but the payment hasn't
+                // been confirmed yet by the user.
                 .filter(d => d.balance > 0);
 
               // Walk debts in priority order. Suggest only those we can FULLY pay off —
