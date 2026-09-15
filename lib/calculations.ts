@@ -184,6 +184,31 @@ export function calculatePayoffTimeline(
   // Accumulated freed minimums for the fixed-leftover fallback path (no incomeStreams/expenses).
   let cascadeTotal = 0;
 
+  // Pre-loop: detect debts already zeroed by startingBalances. This happens when the
+  // current month's pay-period rolling sim had a large enough surplus to cover them all
+  // (e.g., very large income). Emit payoff events dated to the current month so the
+  // timeline shows them rather than appearing completely blank.
+  if (startingBalances) {
+    const curMonthDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    for (let i = 0; i < working.length; i++) {
+      const origBal = sorted[i].balance;
+      if (origBal > 0 && working[i].balance === 0) {
+        paidOff[i] = true;
+        cascadeTotal += sorted[i].minimumPayment;
+        events.push({
+          month: 1,
+          date: new Date(curMonthDate),
+          debtName: working[i].name,
+          amountApplied: origBal,
+          cascadeAdded: sorted[i].minimumPayment,
+          interestPaid: 0,
+        });
+      }
+    }
+    // Ensure monthsToFree reflects at least 1 if any debts were pre-zeroed
+    if (events.length > 0) month = Math.max(month, 1);
+  }
+
   while (working.some(d => d.balance > 0) && month < MAX_MONTHS) {
     month++;
 

@@ -666,14 +666,21 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                 .filter(d => isDebtActive(d, period.start))
                 .filter(d => !entry.paidExpenseIds.includes(d.id))
                 .filter(d => !periodPaidOffIds.includes(d.id))
-                .filter(d => (simBals.get(d.id) ?? 0) > 0);
+                // Use the original stored balance for filtering — simBals might show 0 if a
+                // previous period's projected leftover "consumed" the debt, but the user
+                // hasn't actually confirmed that payment yet.
+                .filter(d => d.balance > 0);
 
               // Walk debts in priority order. Suggest only those we can FULLY pay off —
               // stop at the first debt where the leftover falls short (no partial suggestions).
               const rows: { debt: Debt; simBal: number }[] = [];
               let remaining = leftover;
               for (const debt of sorted) {
-                const simBal = simBals.get(debt.id) ?? debt.balance;
+                // Use the rolled-down balance when positive; fall back to the original
+                // stored balance if the rolling sim projected it to 0 (meaning a previous
+                // period's projected leftover was supposed to cover it, but wasn't confirmed).
+                const rolledBal = simBals.get(debt.id) ?? 0;
+                const simBal = rolledBal > 0 ? rolledBal : debt.balance;
                 if (remaining >= simBal) {
                   rows.push({ debt, simBal });
                   remaining -= simBal;
