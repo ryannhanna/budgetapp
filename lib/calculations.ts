@@ -174,27 +174,39 @@ export function calculatePayoffTimeline(
   // Track which working debts have already been recorded as paid off
   const paidOff = new Array(working.length).fill(false);
 
+  // Accumulated freed minimums for the fixed-leftover fallback path (no incomeStreams/expenses).
+  let cascadeTotal = 0;
+
   while (working.some(d => d.balance > 0) && month < MAX_MONTHS) {
     month++;
 
-    // Recompute leftover each month so future income/expense start dates are reflected
-    // and so freed minimums from paid-off debts correctly increase the extra payment.
+    // The calendar month this simulation step represents.
+    const simDate = new Date(now.getFullYear(), now.getMonth() + month, 1);
+
+    // A working debt is "active this month" if it has a positive balance AND its
+    // startDate (if set) is on or before simDate. This correctly excludes:
+    //   • fully-paid debts (balance = 0) — enables the cascade effect
+    //   • future-start debts (startDate > simDate) — prevents them from consuming
+    //     extra payment or inflating simMins in months before they begin
+    const activeThisMonth = (d: (typeof working)[0]) =>
+      d.balance > 0 && isDebtActive(d as Debt, simDate);
+
+    // Recompute extra each month using only active debts' minimums so that:
+    //   • paid-off debts free their minimum into extra (cascade)
+    //   • debts not yet started don't reduce the available surplus prematurely
     let extra: number;
     if (incomeStreams && expenses) {
-      const simDate = new Date(now.getFullYear(), now.getMonth() + month, 1);
       const simIncome = getTotalIncome(incomeStreams, 'monthly', simDate);
       const simExpenses = getTotalExpenses(expenses, 'monthly', simDate);
-      // Use working balances (not original debts) so paid-off debts no longer
-      // reduce the available extra — this is what enables the cascade effect.
-      const simMins = working.filter(d => d.balance > 0).reduce((s, d) => s + d.minimumPayment, 0);
+      const simMins = working.filter(activeThisMonth).reduce((s, d) => s + d.minimumPayment, 0);
       extra = Math.max(0, simIncome - simExpenses - simMins) + extraPayment;
     } else {
-      extra = monthlyLeftover + extraPayment;
+      extra = monthlyLeftover + extraPayment + cascadeTotal;
     }
 
-    // Apply interest to each active debt
+    // Apply interest only to debts active this month
     for (const d of working) {
-      if (d.balance <= 0) continue;
+      if (!activeThisMonth(d)) continue;
       if (d.interestRate) {
         const monthlyRate = d.interestRate / 100 / 12;
         const interest = d.balance * monthlyRate;
@@ -203,16 +215,16 @@ export function calculatePayoffTimeline(
       }
     }
 
-    // Pay minimums to ALL active debts
+    // Pay minimums only to debts active this month
     for (const d of working) {
-      if (d.balance <= 0) continue;
+      if (!activeThisMonth(d)) continue;
       d.balance -= Math.min(d.balance, d.minimumPayment);
     }
 
-    // Cascade extra through debts in priority order within the same month
+    // Cascade extra through active debts in priority order within the same month
     let remainingExtra = extra;
     for (const d of working) {
-      if (d.balance <= 0 || remainingExtra <= 0) continue;
+      if (!activeThisMonth(d) || remainingExtra <= 0) continue;
       const payment = Math.min(d.balance, remainingExtra);
       d.balance -= payment;
       remainingExtra -= payment;
@@ -223,12 +235,12 @@ export function calculatePayoffTimeline(
       if (d.balance > 0 && d.balance < 0.01) d.balance = 0;
     }
 
-    // Record newly paid-off debts and free their minimums into extra (cascade)
-    const date = new Date(now);
-    date.setMonth(date.getMonth() + month);
+    // Record newly paid-off debts; accumulate freed minimums for the fallback path
+    const date = new Date(now.getFullYear(), now.getMonth() + month, 1);
     for (let i = 0; i < working.length; i++) {
       if (!paidOff[i] && working[i].balance === 0) {
         paidOff[i] = true;
+        cascadeTotal += working[i].minimumPayment;
         events.push({
           month,
           date: new Date(date),
@@ -237,7 +249,6 @@ export function calculatePayoffTimeline(
           cascadeAdded: working[i].minimumPayment,
           interestPaid: totalInterestPaid,
         });
-        extra += working[i].minimumPayment;
       }
     }
   }
