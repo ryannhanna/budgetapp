@@ -243,7 +243,9 @@ export function calculatePayoffTimeline(
     }
 
     // Record newly paid-off debts; accumulate freed minimums for the fallback path
-    const date = new Date(now.getFullYear(), now.getMonth() + month, 1);
+    // Subtract 1 so month-1 = current month, month-2 = next month, etc.
+    // This aligns the displayed payoff date with what the pay-period view shows.
+    const date = new Date(now.getFullYear(), now.getMonth() + month - 1, 1);
     for (let i = 0; i < working.length; i++) {
       if (!paidOff[i] && working[i].balance === 0) {
         paidOff[i] = true;
