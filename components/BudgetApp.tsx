@@ -144,67 +144,38 @@ export default function BudgetApp() {
     }
     load();
 
-    // ── Real-time SSE connection ───────────────────────────────────────────────
-    // The server polls Neon every 1.5 s and pushes a new event the moment it sees
-    // a version bump — so all devices update almost instantly.
-    let es: EventSource | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function connectSSE() {
-      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-      es?.close();
-
-      const source = new EventSource('/api/budget/stream');
-      es = source;
-
-      source.onopen = () => setLiveStatus('live');
-
-      source.onmessage = (e) => {
-        try {
-          const { version, state: incoming } = JSON.parse(e.data) as {
-            version: number;
-            state: BudgetState;
-          };
-          if (version > lastAppliedVersionRef.current) {
-            lastAppliedVersionRef.current = version;
-            lsWrite(incoming);
-            lsWriteVersion(version);
-            setState(incoming);
-          }
-        } catch {
-          // Ignore malformed events (e.g. heartbeat comments)
-        }
-      };
-
-      source.onerror = () => {
-        setLiveStatus('offline');
-        source.close();
-        // Reconnect after 3 s — EventSource doesn't auto-reconnect when we close it
-        reconnectTimer = setTimeout(connectSSE, 3000);
-      };
-    }
-
-    connectSSE();
-
-    // When this tab becomes visible again, reconnect SSE (it may have been throttled
-    // while hidden) and do one immediate DB fetch to catch up on missed changes.
-    function onVisible() {
-      if (document.visibilityState !== 'visible') return;
-      connectSSE();
-      dbGet().then(result => {
+    // ── Client-side polling (replaces SSE) ────────────────────────────────────
+    // SSE kept a long-running edge-function connection alive per browser tab,
+    // eating through Vercel's 4 h/month Fluid Active CPU free tier quickly.
+    // Polling uses standard Function Invocations (1 M/month free) instead:
+    // each 5-second poll is a short-lived serverless call, so the same usage
+    // costs ~0 CPU hours and stays well within the free plan.
+    async function poll() {
+      try {
+        const result = await dbGet();
         if (result && result.version > lastAppliedVersionRef.current) {
           lastAppliedVersionRef.current = result.version;
           lsWrite(result.state);
           lsWriteVersion(result.version);
           setState(result.state);
         }
-      });
+        setLiveStatus('live');
+      } catch {
+        setLiveStatus('offline');
+      }
+    }
+
+    const pollTimer = setInterval(poll, 5000);
+    setLiveStatus('live');
+
+    // Immediate catch-up poll whenever this tab becomes visible after being hidden.
+    function onVisible() {
+      if (document.visibilityState === 'visible') poll();
     }
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      es?.close();
+      clearInterval(pollTimer);
       document.removeEventListener('visibilitychange', onVisible);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
