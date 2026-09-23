@@ -2,9 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react';
 import confetti from 'canvas-confetti';
-import { BudgetState, Expense, Debt, WeekEntry, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from '@/lib/types';
-import { getSemiMonthlyRanges, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
-import { incomeToSemiMonthly, fmt, sortByStrategy, isExpenseActive, isIncomeActive } from '@/lib/calculations';
+import { BudgetState, Expense, Debt, WeekEntry, PayFrequency, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from '@/lib/types';
+import { getPayPeriods, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
+import { incomeToBiWeekly, incomeToSemiMonthly, fmt, sortByStrategy, isExpenseActive, isIncomeActive } from '@/lib/calculations';
 import { ChevronLeft, ChevronRight, Lightbulb, CheckCircle2, Pencil, X, Plus, Check, Settings2 } from 'lucide-react';
 
 interface WeeklyViewProps {
@@ -79,6 +79,8 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
   const config = state.payPeriodConfig ?? DEFAULT_PAY_PERIOD_CONFIG;
 
   // Local draft state for the period settings panel
+  const [draftType, setDraftType] = useState<'semi-monthly' | 'bi-weekly'>(config.type ?? 'bi-weekly');
+  const [draftAnchor, setDraftAnchor] = useState(config.anchorDate ?? '2026-09-25');
   const [draftP1, setDraftP1] = useState(config.period1Start);
   const [draftP2, setDraftP2] = useState(config.period2Start);
 
@@ -87,13 +89,21 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
     currentPeriodRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
-  const periods = getSemiMonthlyRanges(year, month, config);
+  const periods = getPayPeriods(year, month, config);
 
   // Sync draft to config whenever config changes (e.g. remote update)
   useEffect(() => {
+    setDraftType(config.type ?? 'bi-weekly');
+    setDraftAnchor(config.anchorDate ?? '2026-09-25');
     setDraftP1(config.period1Start);
     setDraftP2(config.period2Start);
-  }, [config.period1Start, config.period2Start]);
+  }, [config.type, config.anchorDate, config.period1Start, config.period2Start]);
+
+  /** Per-period income normaliser — bi-weekly uses 26-period math, semi-monthly uses 24. */
+  const incomePerPeriod = (amount: number, freq: PayFrequency) =>
+    (config.type ?? 'bi-weekly') === 'bi-weekly'
+      ? incomeToBiWeekly(amount, freq)
+      : incomeToSemiMonthly(amount, freq);
 
   const prevMonth = () => {
     if (month === 0) { setMonth(11); setYear(y => y - 1); }
@@ -143,7 +153,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
         .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
       const periodFallback = incomeStreams
         .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
-        .reduce((sum, s) => sum + incomeToSemiMonthly(s.amount, s.frequency), 0);
+        .reduce((sum, s) => sum + incomePerPeriod(s.amount, s.frequency), 0);
 
       const pLeftover = (exactInc + periodFallback + (pEntry?.extraIncome ?? 0)) - (dueCost + rentPer + customCost);
       const periodPaidOff = pEntry?.paidOffDebtIds ?? [];
@@ -183,7 +193,9 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
               className="mt-0.5 flex items-center gap-1 mx-auto text-xs text-gray-500 hover:text-gray-300 transition-colors"
             >
               <Settings2 size={11} />
-              {config.period1Start}th–{config.period2Start - 1}th &amp; {config.period2Start}th–end
+              {(config.type ?? 'bi-weekly') === 'bi-weekly'
+                ? `Bi-weekly from ${config.anchorDate ? new Date(config.anchorDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Sep 25'}`
+                : `${config.period1Start}th–${config.period2Start - 1}th & ${config.period2Start}th–end`}
             </button>
           </div>
           <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors">
@@ -195,53 +207,108 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
         {showPeriodSettings && (
           <div className="border-t border-gray-800 px-5 py-4 space-y-4 bg-gray-950/40">
             <p className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
-              <Settings2 size={12} /> Customise Pay Period Split Days
+              <Settings2 size={12} /> Customise Pay Period
             </p>
-            <p className="text-xs text-gray-500">
-              Set the day each period starts. Period 1 runs from day <strong className="text-gray-400">{draftP1}</strong> to day <strong className="text-gray-400">{draftP2 - 1}</strong>; Period 2 runs from day <strong className="text-gray-400">{draftP2}</strong> to end of month.
-            </p>
-            <div className="flex items-center gap-6 flex-wrap">
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-400 whitespace-nowrap">Period 1 starts on day</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={27}
-                  value={draftP1}
-                  onChange={e => {
-                    const v = Math.max(1, Math.min(27, parseInt(e.target.value) || 1));
-                    setDraftP1(v);
-                    if (draftP2 <= v) setDraftP2(v + 1);
-                  }}
-                  className="w-16 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-center text-sm text-gray-200 focus:ring-1 focus:ring-blue-600 outline-none"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-400 whitespace-nowrap">Period 2 starts on day</label>
-                <input
-                  type="number"
-                  min={2}
-                  max={28}
-                  value={draftP2}
-                  onChange={e => {
-                    const v = Math.max(draftP1 + 1, Math.min(28, parseInt(e.target.value) || 16));
-                    setDraftP2(v);
-                  }}
-                  className="w-16 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-center text-sm text-gray-200 focus:ring-1 focus:ring-blue-600 outline-none"
-                />
+
+            {/* Type toggle */}
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400">Type:</span>
+              <div className="flex rounded-lg overflow-hidden border border-gray-700">
+                <button
+                  onClick={() => setDraftType('bi-weekly')}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    draftType === 'bi-weekly'
+                      ? 'bg-green-700 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  Bi-weekly
+                </button>
+                <button
+                  onClick={() => setDraftType('semi-monthly')}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    draftType === 'semi-monthly'
+                      ? 'bg-green-700 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  Semi-monthly
+                </button>
               </div>
             </div>
 
-            {/* Validation hint */}
-            {draftP2 <= draftP1 && (
-              <p className="text-xs text-red-400">Period 2 start must be after Period 1 start.</p>
+            {draftType === 'bi-weekly' ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="text-xs text-gray-400 whitespace-nowrap">Anchor pay date</label>
+                  <input
+                    type="date"
+                    value={draftAnchor}
+                    onChange={e => setDraftAnchor(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 focus:ring-1 focus:ring-blue-600 outline-none"
+                  />
+                </div>
+                <p className="text-xs text-gray-500">
+                  Any known pay date — the 14-day cycle repeats forward and backward from it.
+                  {draftAnchor && (() => {
+                    const a = new Date(draftAnchor + 'T00:00:00');
+                    const b = new Date(a); b.setDate(b.getDate() + 14);
+                    const c = new Date(b); c.setDate(c.getDate() + 14);
+                    const fmt2 = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    return ` e.g. ${fmt2(a)}, ${fmt2(b)}, ${fmt2(c)}, …`;
+                  })()}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500">
+                  Period 1 runs from day <strong className="text-gray-400">{draftP1}</strong> to day <strong className="text-gray-400">{draftP2 - 1}</strong>; Period 2 runs from day <strong className="text-gray-400">{draftP2}</strong> to end of month.
+                </p>
+                <div className="flex items-center gap-6 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-400 whitespace-nowrap">Period 1 starts on day</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={27}
+                      value={draftP1}
+                      onChange={e => {
+                        const v = Math.max(1, Math.min(27, parseInt(e.target.value) || 1));
+                        setDraftP1(v);
+                        if (draftP2 <= v) setDraftP2(v + 1);
+                      }}
+                      className="w-16 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-center text-sm text-gray-200 focus:ring-1 focus:ring-blue-600 outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-400 whitespace-nowrap">Period 2 starts on day</label>
+                    <input
+                      type="number"
+                      min={2}
+                      max={28}
+                      value={draftP2}
+                      onChange={e => {
+                        const v = Math.max(draftP1 + 1, Math.min(28, parseInt(e.target.value) || 16));
+                        setDraftP2(v);
+                      }}
+                      className="w-16 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-center text-sm text-gray-200 focus:ring-1 focus:ring-blue-600 outline-none"
+                    />
+                  </div>
+                </div>
+                {draftP2 <= draftP1 && (
+                  <p className="text-xs text-red-400">Period 2 start must be after Period 1 start.</p>
+                )}
+              </div>
             )}
 
             <div className="flex items-center gap-2 pt-1">
               <button
-                disabled={draftP2 <= draftP1}
+                disabled={draftType === 'semi-monthly' ? draftP2 <= draftP1 : !draftAnchor}
                 onClick={() => {
-                  onUpdatePayPeriodConfig({ period1Start: draftP1, period2Start: draftP2 });
+                  const newCfg: PayPeriodConfig = draftType === 'bi-weekly'
+                    ? { type: 'bi-weekly', period1Start: config.period1Start, period2Start: config.period2Start, anchorDate: draftAnchor }
+                    : { type: 'semi-monthly', period1Start: draftP1, period2Start: draftP2 };
+                  onUpdatePayPeriodConfig(newCfg);
                   setShowPeriodSettings(false);
                 }}
                 className="bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg px-4 py-1.5 text-sm font-medium transition-colors"
@@ -250,6 +317,8 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
               </button>
               <button
                 onClick={() => {
+                  setDraftType(config.type ?? 'bi-weekly');
+                  setDraftAnchor(config.anchorDate ?? '2026-09-25');
                   setDraftP1(config.period1Start);
                   setDraftP2(config.period2Start);
                   setShowPeriodSettings(false);
@@ -260,12 +329,14 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
               </button>
               <button
                 onClick={() => {
+                  setDraftType(DEFAULT_PAY_PERIOD_CONFIG.type);
+                  setDraftAnchor(DEFAULT_PAY_PERIOD_CONFIG.anchorDate ?? '2026-09-25');
                   setDraftP1(DEFAULT_PAY_PERIOD_CONFIG.period1Start);
                   setDraftP2(DEFAULT_PAY_PERIOD_CONFIG.period2Start);
                 }}
                 className="ml-auto text-xs text-gray-600 hover:text-gray-400 transition-colors"
               >
-                Reset to default (1st &amp; 16th)
+                Reset to default (bi-weekly Sep 25)
               </button>
             </div>
           </div>
@@ -330,7 +401,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
           .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
         const fallback = incomeStreams
           .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
-          .reduce((sum, s) => sum + incomeToSemiMonthly(s.amount, s.frequency), 0);
+          .reduce((sum, s) => sum + incomePerPeriod(s.amount, s.frequency), 0);
         const periodIncome = exactIncome + fallback + entry.extraIncome;
         const leftover = periodIncome - periodExpenses - paidOffCost;
 

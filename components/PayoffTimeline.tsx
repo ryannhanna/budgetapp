@@ -33,7 +33,7 @@ export default function PayoffTimeline({ state, onStrategyChange }: PayoffTimeli
   const startingBalances = useMemo(
     () => getRolledDownBalances(debts, incomeStreams, expenses, weekEntries, payoffStrategy, config),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [debts, incomeStreams, expenses, weekEntries, payoffStrategy, config.period1Start, config.period2Start],
+    [debts, incomeStreams, expenses, weekEntries, payoffStrategy, config.type, config.anchorDate, config.period1Start, config.period2Start],
   );
 
   const result = calculatePayoffTimeline(debts, payoffStrategy, monthlyLeftover, extraPayment, incomeStreams, expenses, startingBalances);

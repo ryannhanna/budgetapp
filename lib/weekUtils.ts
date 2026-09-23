@@ -1,5 +1,5 @@
 import { Debt, Expense, IncomeStream, PayFrequency, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG, WeekEntry, PayoffStrategy } from './types';
-import { incomeToSemiMonthly, isExpenseActive, isIncomeActive, isDebtActive, sortByStrategy } from './calculations';
+import { incomeToSemiMonthly, incomeToBiWeekly, isExpenseActive, isIncomeActive, isDebtActive, sortByStrategy } from './calculations';
 
 export interface WeekRange {
   weekId: string;
@@ -75,6 +75,19 @@ export function getBiWeeklyRanges(year: number, month: number, anchor?: Date): W
   }
 
   return ranges;
+}
+
+/**
+ * Dispatches to the correct range function based on config.type.
+ * - 'bi-weekly': 14-day periods anchored to config.anchorDate
+ * - 'semi-monthly' (or undefined type for backward-compat): two fixed days per month
+ */
+export function getPayPeriods(year: number, month: number, config: PayPeriodConfig): WeekRange[] {
+  if (config.type === 'bi-weekly' && config.anchorDate) {
+    const anchor = new Date(config.anchorDate + 'T00:00:00');
+    return getBiWeeklyRanges(year, month, anchor);
+  }
+  return getSemiMonthlyRanges(year, month, config);
 }
 
 /** Returns the week ranges (Mon–Sun) that overlap with the given month */
@@ -372,7 +385,7 @@ export function getRolledDownBalances(
   // when today is the 15th) be counted in the rolled-down starting balances, so the
   // payoff timeline correctly reflects paying off debts this month rather than
   // projecting them out into future months via the regular monthly-average income.
-  const periods = getSemiMonthlyRanges(now.getFullYear(), now.getMonth(), config);
+  const periods = getPayPeriods(now.getFullYear(), now.getMonth(), config);
 
   const rolling = new Map<string, number>(
     debts.filter(d => !d.isPaidOff).map(d => [d.id, d.balance]),
@@ -406,7 +419,7 @@ export function getRolledDownBalances(
       .reduce((sum, s) => sum + getIncomeInWeek(s, period.start, period.end), 0);
     const fallback = incomeStreams
       .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
-      .reduce((sum, s) => sum + incomeToSemiMonthly(s.amount, s.frequency), 0);
+      .reduce((sum, s) => sum + (config.type === 'bi-weekly' ? incomeToBiWeekly(s.amount, s.frequency) : incomeToSemiMonthly(s.amount, s.frequency)), 0);
 
     const pLeftover = (exactInc + fallback + (pEntry?.extraIncome ?? 0))
       - (dueCost + rentPer + customCost);

@@ -101,15 +101,21 @@ export interface WeekEntry {
 }
 
 export interface PayPeriodConfig {
-  /** Day of month period 1 starts (1–28). Default: 1 */
+  /** Pay period type. 'bi-weekly' = 14-day cycle from anchorDate; 'semi-monthly' = two fixed days per month. Default: 'bi-weekly' */
+  type: 'semi-monthly' | 'bi-weekly';
+  /** Semi-monthly only: day of month period 1 starts (1–28). Default: 1 */
   period1Start: number;
-  /** Day of month period 2 starts (1–28), must be > period1Start. Default: 16 */
+  /** Semi-monthly only: day of month period 2 starts (1–28), must be > period1Start. Default: 16 */
   period2Start: number;
+  /** Bi-weekly only: ISO date string (YYYY-MM-DD) of any known pay period start date */
+  anchorDate?: string;
 }
 
 export const DEFAULT_PAY_PERIOD_CONFIG: PayPeriodConfig = {
+  type: 'bi-weekly',
   period1Start: 1,
   period2Start: 16,
+  anchorDate: '2026-09-25',
 };
 
 export interface BudgetState {

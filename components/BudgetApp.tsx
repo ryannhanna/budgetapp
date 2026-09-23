@@ -42,7 +42,7 @@ const DEFAULT_STATE: BudgetState = {
   payoffStrategy: 'ratio',
   viewMode: 'semi-monthly',
   weekEntries: [],
-  payPeriodConfig: { period1Start: 1, period2Start: 16 },
+  payPeriodConfig: { type: 'bi-weekly', period1Start: 1, period2Start: 16, anchorDate: '2026-09-25' },
 };
 
 const LS_STATE_KEY = 'budget-state';
@@ -58,6 +58,10 @@ function lsRead(): BudgetState | null {
     const parsed = JSON.parse(raw);
     // Migrate old 'bi-weekly' viewMode to 'semi-monthly'
     if (parsed?.viewMode === 'bi-weekly') parsed.viewMode = 'semi-monthly';
+    // Migrate old payPeriodConfig (no type field) to bi-weekly with Sep 25 anchor
+    if (parsed?.payPeriodConfig && !parsed.payPeriodConfig.type) {
+      parsed.payPeriodConfig = { type: 'bi-weekly', period1Start: 1, period2Start: 16, anchorDate: '2026-09-25' };
+    }
     return parsed;
   } catch { return null; }
 }
