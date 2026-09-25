@@ -425,8 +425,9 @@ export function getRolledDownBalances(
     const pLeftover = (exactInc + fallback + (pEntry?.extraIncome ?? 0))
       - (dueCost + rentPer + customCost);
     const periodPaidOff = pEntry?.paidOffDebtIds ?? [];
+    const hasPartialThisPeriod = Object.keys(pEntry?.partialPayments ?? {}).length > 0;
 
-    if (pLeftover > 0 && periodPaidOff.length === 0) {
+    if (pLeftover > 0 && periodPaidOff.length === 0 && !hasPartialThisPeriod) {
       // No isDebtActive filter — large surplus can zero upcoming debts too.
       // No paidIds filter — checking a minimum payment off should not prevent
       // extra surplus from being applied to reduce that debt's balance.

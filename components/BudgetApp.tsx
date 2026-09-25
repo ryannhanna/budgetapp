@@ -297,6 +297,24 @@ export default function BudgetApp() {
     }
   };
 
+  // Reduce a debt's balance by the given amount and record it in the week entry
+  // so (a) the leftover is correctly reduced for this period and (b) the rolling
+  // sim skips re-applying the extra payment on top of the already-updated balance.
+  const applyPartialDebtPayment = (debtId: string, entry: WeekEntry, amount: number) => {
+    const cur = stateRef.current;
+    const updatedDebts = cur.debts.map(d =>
+      d.id === debtId ? { ...d, balance: Math.max(0, parseFloat((d.balance - amount).toFixed(2))) } : d
+    );
+    const updatedEntry: WeekEntry = {
+      ...entry,
+      partialPayments: { ...(entry.partialPayments ?? {}), [debtId]: amount },
+    };
+    const updatedEntries = cur.weekEntries.find(w => w.weekId === entry.weekId)
+      ? cur.weekEntries.map(w => w.weekId === entry.weekId ? updatedEntry : w)
+      : [...cur.weekEntries, updatedEntry];
+    update({ debts: updatedDebts, weekEntries: updatedEntries });
+  };
+
   // Atomically mark a debt as paid-off AND record it in the week entry so
   // the pay period shows a confirmation instead of cascading to the next debt.
   const payOffDebtViaSuggestion = (debtId: string, entry: WeekEntry, amount: number) => {
@@ -434,6 +452,7 @@ export default function BudgetApp() {
             onUpsertEntry={upsertWeekEntry}
             onToggleDebtPaidOff={toggleDebtPaidOff}
             onPayOffDebtViaSuggestion={payOffDebtViaSuggestion}
+            onPartialDebtPayment={applyPartialDebtPayment}
             onUpdatePayPeriodConfig={cfg => update({ payPeriodConfig: cfg })}
           />
         )}

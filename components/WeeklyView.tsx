@@ -12,6 +12,7 @@ interface WeeklyViewProps {
   onUpsertEntry: (entry: WeekEntry) => void;
   onToggleDebtPaidOff: (id: string) => void;
   onPayOffDebtViaSuggestion: (debtId: string, entry: WeekEntry, amount: number) => void;
+  onPartialDebtPayment: (debtId: string, entry: WeekEntry, amount: number) => void;
   onUpdatePayPeriodConfig: (config: PayPeriodConfig) => void;
 }
 
@@ -66,7 +67,7 @@ function saveOverride(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSuggestion, onUpdatePayPeriodConfig }: WeeklyViewProps) {
+export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSuggestion, onPartialDebtPayment, onUpdatePayPeriodConfig }: WeeklyViewProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -157,8 +158,9 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
 
       const pLeftover = (exactInc + periodFallback + (pEntry?.extraIncome ?? 0)) - (dueCost + rentPer + customCost);
       const periodPaidOff = pEntry?.paidOffDebtIds ?? [];
+      const hasPartialThisPeriod = Object.keys(pEntry?.partialPayments ?? {}).length > 0;
 
-      if (pLeftover > 0 && periodPaidOff.length === 0) {
+      if (pLeftover > 0 && periodPaidOff.length === 0 && !hasPartialThisPeriod) {
         // No isDebtActive filter — large surplus can zero upcoming debts too.
         // No paidIds filter — checking a minimum payment off should not prevent
         // extra surplus from being applied to reduce that debt's balance.
@@ -402,8 +404,9 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
         const fallback = incomeStreams
           .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
           .reduce((sum, s) => sum + incomePerPeriod(s.amount, s.frequency), 0);
+        const partialPaymentCost = Object.values(entry.partialPayments ?? {}).reduce((s, v) => s + v, 0);
         const periodIncome = exactIncome + fallback + entry.extraIncome;
-        const leftover = periodIncome - periodExpenses - paidOffCost;
+        const leftover = periodIncome - periodExpenses - paidOffCost - partialPaymentCost;
 
         monthTotalIncome += periodIncome;
         monthTotalExpenses += periodExpenses;
@@ -731,39 +734,39 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
               </div>
             )}
 
-            {/* Surplus debt suggestion — only shown when leftover covers a full payoff */}
-            {(leftover > 0 || periodPaidOffIds.length > 0) && (() => {
-              // simBals and periodPaidOffIds are already computed above (used for leftover calc)
+            {/* Extra payment suggestions — full payoffs + partial toward next debt */}
+            {(leftover > 0 || periodPaidOffIds.length > 0 || Object.keys(entry.partialPayments ?? {}).length > 0) && (() => {
+              // Eligible debts: not fully paid off this period, not partially paid this period,
+              // balance > 0. sortByStrategy already excludes isPaidOff debts.
               const sorted = sortByStrategy(debts, state.payoffStrategy, state.debtOrder)
-                // Do NOT filter by isDebtActive — large surplus can pay off upcoming debts too.
-                // Do NOT filter by paidExpenseIds — checking a minimum payment checkbox should
-                // never prevent suggesting a full payoff of that debt.
-                // sortByStrategy already excludes isPaidOff debts.
                 .filter(d => !periodPaidOffIds.includes(d.id))
-                // Use the original stored balance — simBals may show 0 when a previous
-                // period's projected leftover consumed the debt, but the payment hasn't
-                // been confirmed yet by the user.
+                .filter(d => !entry.partialPayments?.[d.id])
                 .filter(d => d.balance > 0);
 
-              // Walk debts in priority order. Suggest only those we can FULLY pay off —
-              // stop at the first debt where the leftover falls short (no partial suggestions).
+              // Walk in priority order, collect all debts we can FULLY pay off.
               const rows: { debt: Debt; simBal: number }[] = [];
               let remaining = leftover;
               for (const debt of sorted) {
-                // Use the rolled-down balance when positive; fall back to the original
-                // stored balance if the rolling sim projected it to 0 (meaning a previous
-                // period's projected leftover was supposed to cover it, but wasn't confirmed).
                 const rolledBal = simBals.get(debt.id) ?? 0;
                 const simBal = rolledBal > 0 ? rolledBal : debt.balance;
                 if (remaining >= simBal) {
                   rows.push({ debt, simBal });
                   remaining -= simBal;
                 } else {
-                  break; // Not enough to fully cover this debt — stop here
+                  break;
                 }
               }
 
-              if (periodPaidOffIds.length === 0 && rows.length === 0) return null;
+              // The next debt we can't fully pay off — suggest putting all remaining toward it.
+              const partialDebt = sorted[rows.length];
+              const partialRolledBal = partialDebt ? (simBals.get(partialDebt.id) ?? 0) : 0;
+              const partialSimBal = partialDebt
+                ? (partialRolledBal > 0 ? partialRolledBal : partialDebt.balance)
+                : 0;
+              const showPartial = remaining > 0 && !!partialDebt;
+
+              const hasConfirmedPartials = Object.keys(entry.partialPayments ?? {}).length > 0;
+              if (periodPaidOffIds.length === 0 && rows.length === 0 && !showPartial && !hasConfirmedPartials) return null;
 
               return (
                 <div className="px-5 pb-4">
@@ -773,7 +776,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                       Extra Payment Suggestion — {state.payoffStrategy} strategy
                     </p>
                     <div className="space-y-2">
-                      {/* Confirmation rows for debts already paid off this period */}
+                      {/* Confirmed full payoffs this period */}
                       {periodPaidOffIds.map(did => {
                         const d = debts.find(db => db.id === did);
                         return d ? (
@@ -784,7 +787,22 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                           </div>
                         ) : null;
                       })}
-                      {/* Full-payoff suggestions only */}
+
+                      {/* Confirmed partial payments this period */}
+                      {Object.entries(entry.partialPayments ?? {}).map(([did, amount]) => {
+                        const d = debts.find(db => db.id === did);
+                        return d ? (
+                          <div key={did} className="flex items-center gap-1.5 text-sm text-blue-400">
+                            <CheckCircle2 size={13} />
+                            <span className="font-medium">{d.name}</span>
+                            <span className="text-xs text-blue-600">
+                              {fmt(amount)} applied · {fmt(d.balance)} remaining
+                            </span>
+                          </div>
+                        ) : null;
+                      })}
+
+                      {/* Full-payoff suggestions */}
                       {rows.map(({ debt, simBal }) => (
                         <div key={debt.id} className="flex items-center justify-between text-sm gap-3">
                           <span className="text-gray-300 min-w-0">
@@ -803,8 +821,32 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                           </div>
                         </div>
                       ))}
+
+                      {/* Partial-payoff suggestion — leftover toward the next debt */}
+                      {showPartial && (
+                        <div className="flex items-center justify-between text-sm gap-3 pt-1 border-t border-emerald-900/40">
+                          <span className="text-gray-300 min-w-0">
+                            <span className="text-blue-400">Apply toward </span>
+                            <span className="font-medium text-gray-100">{partialDebt.name}</span>
+                            <span className="text-xs text-gray-500 ml-1">
+                              ({fmt(partialSimBal)} → {fmt(Math.max(0, partialSimBal - remaining))} remaining)
+                            </span>
+                          </span>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-blue-400 font-semibold">{fmt(remaining)}</span>
+                            <button
+                              onClick={() => onPartialDebtPayment(partialDebt.id, entry, remaining)}
+                              className="flex items-center gap-1 text-xs bg-blue-700 hover:bg-blue-600 text-white rounded-lg px-2 py-1 font-medium transition-colors"
+                            >
+                              <CheckCircle2 size={12} /> Apply
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    {rows.length > 0 && remaining > 0 && rows.length === sorted.length && (
+
+                    {/* Goes to savings only when ALL active debts are fully covered */}
+                    {rows.length > 0 && !showPartial && remaining > 0 && rows.length === sorted.length && (
                       <p className="text-xs text-gray-500 mt-2">
                         {fmt(remaining)} left over goes to savings
                       </p>
