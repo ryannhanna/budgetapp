@@ -163,7 +163,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
         // No paidIds filter — checking a minimum payment off should not prevent
         // extra surplus from being applied to reduce that debt's balance.
         // sortByStrategy already excludes isPaidOff debts.
-        const sorted = sortByStrategy(debts, state.payoffStrategy);
+        const sorted = sortByStrategy(debts, state.payoffStrategy, state.debtOrder);
         let rem = pLeftover;
         for (const debt of sorted) {
           if (rem <= 0) break;
@@ -734,7 +734,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
             {/* Surplus debt suggestion — only shown when leftover covers a full payoff */}
             {(leftover > 0 || periodPaidOffIds.length > 0) && (() => {
               // simBals and periodPaidOffIds are already computed above (used for leftover calc)
-              const sorted = sortByStrategy(debts, state.payoffStrategy)
+              const sorted = sortByStrategy(debts, state.payoffStrategy, state.debtOrder)
                 // Do NOT filter by isDebtActive — large surplus can pay off upcoming debts too.
                 // Do NOT filter by paidExpenseIds — checking a minimum payment checkbox should
                 // never prevent suggesting a full payoff of that debt.

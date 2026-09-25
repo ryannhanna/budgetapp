@@ -377,6 +377,7 @@ export function getRolledDownBalances(
   weekEntries: WeekEntry[],
   strategy: PayoffStrategy,
   config: PayPeriodConfig = DEFAULT_PAY_PERIOD_CONFIG,
+  debtOrder?: string[],
 ): Map<string, number> {
   const now = new Date();
 
@@ -430,7 +431,7 @@ export function getRolledDownBalances(
       // No paidIds filter — checking a minimum payment off should not prevent
       // extra surplus from being applied to reduce that debt's balance.
       // sortByStrategy already excludes isPaidOff debts.
-      const sorted = sortByStrategy(debts, strategy);
+      const sorted = sortByStrategy(debts, strategy, debtOrder);
       let rem = pLeftover;
       for (const debt of sorted) {
         if (rem <= 0) break;

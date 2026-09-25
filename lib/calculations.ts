@@ -125,8 +125,22 @@ export function debtRatio(debt: Debt): number {
   return debt.minimumPayment / debt.balance;
 }
 
-export function sortByStrategy(debts: Debt[], strategy: PayoffStrategy): Debt[] {
+export function sortByStrategy(debts: Debt[], strategy: PayoffStrategy, customOrder?: string[]): Debt[] {
   const active = debts.filter(d => !d.isPaidOff);
+  if (customOrder && customOrder.length > 0) {
+    const orderMap = new Map(customOrder.map((id, i) => [id, i]));
+    return [...active].sort((a, b) => {
+      const aIdx = orderMap.has(a.id) ? orderMap.get(a.id)! : Infinity;
+      const bIdx = orderMap.has(b.id) ? orderMap.get(b.id)! : Infinity;
+      if (aIdx !== bIdx) return aIdx - bIdx;
+      // Tie-break with strategy for debts not in the custom list
+      switch (strategy) {
+        case 'avalanche': return (b.interestRate ?? 0) - (a.interestRate ?? 0);
+        case 'snowball': return a.balance - b.balance;
+        case 'ratio': return debtRatio(b) - debtRatio(a);
+      }
+    });
+  }
   switch (strategy) {
     case 'avalanche':
       return [...active].sort((a, b) => (b.interestRate ?? 0) - (a.interestRate ?? 0));
@@ -163,9 +177,11 @@ export function calculatePayoffTimeline(
   /** Optional pre-rolled balances (e.g. from getRolledDownBalances). When
    *  provided, the simulation starts from these balances instead of each
    *  debt's stored balance, so it agrees with the pay-period view. */
-  startingBalances?: Map<string, number>
+  startingBalances?: Map<string, number>,
+  /** Optional custom priority order (array of debt IDs). Overrides the strategy sort. */
+  debtOrder?: string[],
 ): PayoffResult {
-  const sorted = sortByStrategy(debts, strategy);
+  const sorted = sortByStrategy(debts, strategy, debtOrder);
   if (sorted.length === 0) return { events: [], totalInterestPaid: 0, payoffDate: null, monthsToFree: 0 };
 
   // Deep clone debts for simulation, optionally seeding with rolled-down balances

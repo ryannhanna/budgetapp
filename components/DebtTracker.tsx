@@ -15,9 +15,10 @@ interface DebtTrackerProps {
   onDelete: (id: string) => void;
   onTogglePaidOff: (id: string) => void;
   onStrategyChange: (s: PayoffStrategy) => void;
+  onUpdateDebtOrder: (order: string[] | undefined) => void;
 }
 
-export default function DebtTracker({ state, onAdd, onUpdate, onDelete, onTogglePaidOff, onStrategyChange }: DebtTrackerProps) {
+export default function DebtTracker({ state, onAdd, onUpdate, onDelete, onTogglePaidOff, onStrategyChange, onUpdateDebtOrder }: DebtTrackerProps) {
   const { debts } = state;
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Debt | null>(null);
@@ -92,7 +93,7 @@ export default function DebtTracker({ state, onAdd, onUpdate, onDelete, onToggle
       {/* Payoff Timeline */}
       <div>
         <h2 className="text-base font-semibold text-gray-100 mb-4">Payoff Timeline</h2>
-        <PayoffTimeline state={state} onStrategyChange={onStrategyChange} />
+        <PayoffTimeline state={state} onStrategyChange={onStrategyChange} onUpdateDebtOrder={onUpdateDebtOrder} />
       </div>
 
       {showForm && (

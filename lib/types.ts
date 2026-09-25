@@ -128,4 +128,7 @@ export interface BudgetState {
   weekEntries: WeekEntry[];
   /** Custom pay period split days; defaults to 1st and 16th if omitted */
   payPeriodConfig?: PayPeriodConfig;
+  /** Custom debt payment priority order (array of debt IDs). When set, overrides
+   *  the strategy sort in both the payoff timeline and the extra-payment suggestion. */
+  debtOrder?: string[];
 }

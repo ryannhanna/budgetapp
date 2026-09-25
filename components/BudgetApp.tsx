@@ -425,6 +425,7 @@ export default function BudgetApp() {
             onDelete={deleteDebt}
             onTogglePaidOff={toggleDebtPaidOff}
             onStrategyChange={s => update({ payoffStrategy: s })}
+            onUpdateDebtOrder={order => update({ debtOrder: order })}
           />
         )}
         {activeTab === 'weekly' && (
