@@ -13,6 +13,7 @@ interface WeeklyViewProps {
   onToggleDebtPaidOff: (id: string) => void;
   onPayOffDebtViaSuggestion: (debtId: string, entry: WeekEntry, amount: number) => void;
   onPartialDebtPayment: (debtId: string, entry: WeekEntry, amount: number) => void;
+  onUndoPartialDebtPayment: (debtId: string, entry: WeekEntry, amount: number) => void;
   onUpdatePayPeriodConfig: (config: PayPeriodConfig) => void;
 }
 
@@ -67,7 +68,7 @@ function saveOverride(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSuggestion, onPartialDebtPayment, onUpdatePayPeriodConfig }: WeeklyViewProps) {
+export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSuggestion, onPartialDebtPayment, onUndoPartialDebtPayment, onUpdatePayPeriodConfig }: WeeklyViewProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -792,12 +793,21 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                       {Object.entries(entry.partialPayments ?? {}).map(([did, amount]) => {
                         const d = debts.find(db => db.id === did);
                         return d ? (
-                          <div key={did} className="flex items-center gap-1.5 text-sm text-blue-400">
-                            <CheckCircle2 size={13} />
-                            <span className="font-medium">{d.name}</span>
-                            <span className="text-xs text-blue-600">
-                              {fmt(amount)} applied · {fmt(d.balance)} remaining
-                            </span>
+                          <div key={did} className="flex items-center justify-between gap-2 text-sm text-blue-400">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <CheckCircle2 size={13} className="flex-shrink-0" />
+                              <span className="font-medium">{d.name}</span>
+                              <span className="text-xs text-blue-600">
+                                {fmt(amount)} applied · {fmt(d.balance)} remaining
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => onUndoPartialDebtPayment(did, entry, amount)}
+                              className="flex-shrink-0 text-xs text-gray-600 hover:text-red-400 transition-colors"
+                              title="Undo this partial payment"
+                            >
+                              Undo
+                            </button>
                           </div>
                         ) : null;
                       })}

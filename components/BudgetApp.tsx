@@ -315,6 +315,24 @@ export default function BudgetApp() {
     update({ debts: updatedDebts, weekEntries: updatedEntries });
   };
 
+  // Reverse a partial debt payment: restore the balance and remove the record.
+  const undoPartialDebtPayment = (debtId: string, entry: WeekEntry, amount: number) => {
+    const cur = stateRef.current;
+    const updatedDebts = cur.debts.map(d =>
+      d.id === debtId ? { ...d, balance: parseFloat((d.balance + amount).toFixed(2)) } : d
+    );
+    const updatedPartial = { ...(entry.partialPayments ?? {}) };
+    delete updatedPartial[debtId];
+    const updatedEntry: WeekEntry = {
+      ...entry,
+      partialPayments: Object.keys(updatedPartial).length > 0 ? updatedPartial : undefined,
+    };
+    const updatedEntries = cur.weekEntries.find(w => w.weekId === entry.weekId)
+      ? cur.weekEntries.map(w => w.weekId === entry.weekId ? updatedEntry : w)
+      : [...cur.weekEntries, updatedEntry];
+    update({ debts: updatedDebts, weekEntries: updatedEntries });
+  };
+
   // Atomically mark a debt as paid-off AND record it in the week entry so
   // the pay period shows a confirmation instead of cascading to the next debt.
   const payOffDebtViaSuggestion = (debtId: string, entry: WeekEntry, amount: number) => {
@@ -453,6 +471,7 @@ export default function BudgetApp() {
             onToggleDebtPaidOff={toggleDebtPaidOff}
             onPayOffDebtViaSuggestion={payOffDebtViaSuggestion}
             onPartialDebtPayment={applyPartialDebtPayment}
+            onUndoPartialDebtPayment={undoPartialDebtPayment}
             onUpdatePayPeriodConfig={cfg => update({ payPeriodConfig: cfg })}
           />
         )}
