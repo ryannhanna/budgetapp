@@ -763,7 +763,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
               const partialSimBal = partialDebt
                 ? (partialRolledBal > 0 ? partialRolledBal : partialDebt.balance)
                 : 0;
-              const showPartial = remaining > 0 && !!partialDebt;
+              const showPartial = remaining > 150 && !!partialDebt;
 
               const hasConfirmedPartials = Object.keys(entry.partialPayments ?? {}).length > 0;
               if (periodPaidOffIds.length === 0 && rows.length === 0 && !showPartial && !hasConfirmedPartials) return null;
