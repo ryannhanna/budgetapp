@@ -52,6 +52,8 @@ export interface Expense {
   frequency: ExpenseFrequency;
   dueDay?: number;
   dueWeekday?: string;
+  /** ISO date (YYYY-MM-DD); any known occurrence date for bi-weekly expenses — sets the 14-day cycle */
+  nextDueDate?: string;
   startDate?: string; // ISO date (YYYY-MM-DD); expense is excluded from all calculations before this date
   endDate?: string;   // ISO date (YYYY-MM-DD); expense is excluded from all calculations after this date
 }

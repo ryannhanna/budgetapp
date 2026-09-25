@@ -145,6 +145,19 @@ export function getExpensesDueInWeek(
   }
 
   for (const expense of expenses) {
+    // Bi-weekly with a nextDueDate anchor: walk the 14-day cycle and check for a hit
+    if (expense.frequency === 'bi-weekly' && expense.nextDueDate) {
+      const ref = new Date(expense.nextDueDate + 'T00:00:00');
+      const cursor = new Date(ref);
+      // Step backward until cursor is at or before weekEnd
+      while (cursor > weekEnd) cursor.setDate(cursor.getDate() - 14);
+      // Step forward until cursor is at or after weekStart
+      while (cursor < weekStart) cursor.setDate(cursor.getDate() + 14);
+      // If the next occurrence lands inside the period, include this expense
+      if (cursor <= weekEnd) results.push({ item: expense, type: 'expense' });
+      continue;
+    }
+
     if (expense.dueDay !== undefined) {
       // Check if any day in the week has this day-of-month
       if (daysInWeek.some(d => d.getDate() === expense.dueDay)) {

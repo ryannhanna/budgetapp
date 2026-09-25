@@ -30,7 +30,7 @@ interface ExpenseFormProps {
 export default function ExpenseForm({ initial, onSave, onCancel }: ExpenseFormProps) {
   const [form, setForm] = useState<FormData>(
     initial
-      ? { name: initial.name, amount: initial.amount, category: initial.category, type: initial.type, frequency: initial.frequency, dueDay: initial.dueDay, dueWeekday: initial.dueWeekday, startDate: initial.startDate, endDate: initial.endDate }
+      ? { name: initial.name, amount: initial.amount, category: initial.category, type: initial.type, frequency: initial.frequency, dueDay: initial.dueDay, dueWeekday: initial.dueWeekday, nextDueDate: initial.nextDueDate, startDate: initial.startDate, endDate: initial.endDate }
       : EMPTY
   );
   const [errors, setErrors] = useState<{ name?: string; amount?: string }>({});
@@ -81,7 +81,7 @@ export default function ExpenseForm({ initial, onSave, onCancel }: ExpenseFormPr
             </Field>
             <Field label="Frequency">
               <select className="input w-full" value={form.frequency}
-                onChange={e => setForm(f => ({ ...f, frequency: e.target.value as ExpenseFrequency, dueDay: undefined, dueWeekday: undefined }))}>
+                onChange={e => setForm(f => ({ ...f, frequency: e.target.value as ExpenseFrequency, dueDay: undefined, dueWeekday: undefined, nextDueDate: undefined }))}>
                 {FREQUENCIES.map(f => <option key={f} value={f}>{FREQ_LABELS[f]}</option>)}
               </select>
             </Field>
@@ -101,6 +101,17 @@ export default function ExpenseForm({ initial, onSave, onCancel }: ExpenseFormPr
                 <option value="">Any day</option>
                 {WEEKDAYS.map(w => <option key={w} value={w}>{w}</option>)}
               </select>
+            </Field>
+          )}
+          {form.frequency === 'bi-weekly' && (
+            <Field label="Any due date (sets the 14-day cycle)">
+              <input
+                type="date"
+                className="input w-full"
+                value={form.nextDueDate ?? ''}
+                onChange={e => setForm(f => ({ ...f, nextDueDate: e.target.value || undefined, dueDay: undefined, dueWeekday: undefined }))}
+              />
+              <p className="text-xs text-gray-500 mt-1">Enter any date this expense is due — the pay periods will show it every 14 days from there.</p>
             </Field>
           )}
           {/* Color swatch preview */}
