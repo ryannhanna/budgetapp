@@ -96,6 +96,8 @@ export interface WeekEntry {
   paidOffAmounts?: { [debtId: string]: number };
   /** Partial debt payments applied via the suggestion this period — keyed by debt ID */
   partialPayments?: { [debtId: string]: number };
+  /** Surplus moved into savings goals this period — keyed by goal ID */
+  savingsContributions?: { [goalId: string]: number };
   extraIncome: number;
   notes: string;
   /** Per-item overrides: exclude an item or change its amount just for this period */

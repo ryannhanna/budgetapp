@@ -333,6 +333,45 @@ export default function BudgetApp() {
     update({ debts: updatedDebts, weekEntries: updatedEntries });
   };
 
+  // Move period surplus into a savings goal and record it in the week entry so
+  // the leftover for this period is reduced accordingly.
+  const addSavingsContribution = (goalId: string, entry: WeekEntry, amount: number) => {
+    const cur = stateRef.current;
+    const updatedGoals = cur.savingsGoals.map(g =>
+      g.id === goalId ? { ...g, currentAmount: parseFloat((g.currentAmount + amount).toFixed(2)) } : g
+    );
+    const prev = entry.savingsContributions?.[goalId] ?? 0;
+    const updatedEntry: WeekEntry = {
+      ...entry,
+      savingsContributions: {
+        ...(entry.savingsContributions ?? {}),
+        [goalId]: parseFloat((prev + amount).toFixed(2)),
+      },
+    };
+    const updatedEntries = cur.weekEntries.find(w => w.weekId === entry.weekId)
+      ? cur.weekEntries.map(w => w.weekId === entry.weekId ? updatedEntry : w)
+      : [...cur.weekEntries, updatedEntry];
+    update({ savingsGoals: updatedGoals, weekEntries: updatedEntries });
+  };
+
+  // Reverse a savings contribution: subtract from the goal and remove the record.
+  const undoSavingsContribution = (goalId: string, entry: WeekEntry, amount: number) => {
+    const cur = stateRef.current;
+    const updatedGoals = cur.savingsGoals.map(g =>
+      g.id === goalId ? { ...g, currentAmount: Math.max(0, parseFloat((g.currentAmount - amount).toFixed(2))) } : g
+    );
+    const updatedContrib = { ...(entry.savingsContributions ?? {}) };
+    delete updatedContrib[goalId];
+    const updatedEntry: WeekEntry = {
+      ...entry,
+      savingsContributions: Object.keys(updatedContrib).length > 0 ? updatedContrib : undefined,
+    };
+    const updatedEntries = cur.weekEntries.find(w => w.weekId === entry.weekId)
+      ? cur.weekEntries.map(w => w.weekId === entry.weekId ? updatedEntry : w)
+      : [...cur.weekEntries, updatedEntry];
+    update({ savingsGoals: updatedGoals, weekEntries: updatedEntries });
+  };
+
   // Atomically mark a debt as paid-off AND record it in the week entry so
   // the pay period shows a confirmation instead of cascading to the next debt.
   const payOffDebtViaSuggestion = (debtId: string, entry: WeekEntry, amount: number) => {
@@ -472,6 +511,8 @@ export default function BudgetApp() {
             onPayOffDebtViaSuggestion={payOffDebtViaSuggestion}
             onPartialDebtPayment={applyPartialDebtPayment}
             onUndoPartialDebtPayment={undoPartialDebtPayment}
+            onAddSavingsContribution={addSavingsContribution}
+            onUndoSavingsContribution={undoSavingsContribution}
             onUpdatePayPeriodConfig={cfg => update({ payPeriodConfig: cfg })}
           />
         )}

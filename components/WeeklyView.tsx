@@ -2,10 +2,10 @@
 
 import { useState, useRef, useEffect } from 'react';
 import confetti from 'canvas-confetti';
-import { BudgetState, Expense, Debt, WeekEntry, PayFrequency, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from '@/lib/types';
+import { BudgetState, Expense, Debt, SavingsGoal, WeekEntry, PayFrequency, PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from '@/lib/types';
 import { getPayPeriods, getExpensesDueInWeek, getIncomeInWeek } from '@/lib/weekUtils';
 import { incomeToBiWeekly, incomeToSemiMonthly, fmt, sortByStrategy, isExpenseActive, isIncomeActive } from '@/lib/calculations';
-import { ChevronLeft, ChevronRight, Lightbulb, CheckCircle2, Pencil, X, Plus, Check, Settings2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Lightbulb, PiggyBank, CheckCircle2, Pencil, X, Plus, Check, Settings2 } from 'lucide-react';
 
 interface WeeklyViewProps {
   state: BudgetState;
@@ -14,6 +14,8 @@ interface WeeklyViewProps {
   onPayOffDebtViaSuggestion: (debtId: string, entry: WeekEntry, amount: number) => void;
   onPartialDebtPayment: (debtId: string, entry: WeekEntry, amount: number) => void;
   onUndoPartialDebtPayment: (debtId: string, entry: WeekEntry, amount: number) => void;
+  onAddSavingsContribution: (goalId: string, entry: WeekEntry, amount: number) => void;
+  onUndoSavingsContribution: (goalId: string, entry: WeekEntry, amount: number) => void;
   onUpdatePayPeriodConfig: (config: PayPeriodConfig) => void;
 }
 
@@ -68,7 +70,7 @@ function saveOverride(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSuggestion, onPartialDebtPayment, onUndoPartialDebtPayment, onUpdatePayPeriodConfig }: WeeklyViewProps) {
+export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSuggestion, onPartialDebtPayment, onUndoPartialDebtPayment, onAddSavingsContribution, onUndoSavingsContribution, onUpdatePayPeriodConfig }: WeeklyViewProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -407,7 +409,8 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
           .reduce((sum, s) => sum + incomePerPeriod(s.amount, s.frequency), 0);
         const partialPaymentCost = Object.values(entry.partialPayments ?? {}).reduce((s, v) => s + v, 0);
         const periodIncome = exactIncome + fallback + entry.extraIncome;
-        const leftover = periodIncome - periodExpenses - paidOffCost - partialPaymentCost;
+        const savingsCost = Object.values(entry.savingsContributions ?? {}).reduce((s, v) => s + v, 0);
+        const leftover = periodIncome - periodExpenses - paidOffCost - partialPaymentCost - savingsCost;
 
         monthTotalIncome += periodIncome;
         monthTotalExpenses += periodExpenses;
@@ -736,7 +739,7 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
             )}
 
             {/* Extra payment suggestions — full payoffs + partial toward next debt */}
-            {(leftover > 0 || periodPaidOffIds.length > 0 || Object.keys(entry.partialPayments ?? {}).length > 0) && (() => {
+            {(leftover > 0 || periodPaidOffIds.length > 0 || Object.keys(entry.partialPayments ?? {}).length > 0 || savingsCost > 0) && (() => {
               // Eligible debts: not fully paid off this period, not partially paid this period,
               // balance > 0. sortByStrategy already excludes isPaidOff debts.
               const sorted = sortByStrategy(debts, state.payoffStrategy, state.debtOrder)
@@ -767,14 +770,20 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
               const showPartial = remaining > 150 && !!partialDebt;
 
               const hasConfirmedPartials = Object.keys(entry.partialPayments ?? {}).length > 0;
-              if (periodPaidOffIds.length === 0 && rows.length === 0 && !showPartial && !hasConfirmedPartials) return null;
+              // Surplus can go to savings once every remaining debt is covered (or none are left).
+              const surplus = Math.round(remaining * 100) / 100;
+              const showSavings = !partialDebt && surplus > 0;
+              const hasContributions = savingsCost > 0;
+              if (periodPaidOffIds.length === 0 && rows.length === 0 && !showPartial && !hasConfirmedPartials
+                && !showSavings && !hasContributions) return null;
+              const debtFree = sorted.length === 0 && periodPaidOffIds.length === 0 && !hasConfirmedPartials;
 
               return (
                 <div className="px-5 pb-4">
                   <div className="px-4 py-3 rounded-xl bg-emerald-950/50 border border-emerald-800/30">
                     <p className="text-emerald-400 font-semibold text-xs mb-2 flex items-center gap-1.5">
-                      <Lightbulb size={12} />
-                      Extra Payment Suggestion — {state.payoffStrategy} strategy
+                      {debtFree ? <PiggyBank size={12} /> : <Lightbulb size={12} />}
+                      {debtFree ? 'Surplus to Savings — debt free 🎉' : `Extra Payment Suggestion — ${state.payoffStrategy} strategy`}
                     </p>
                     <div className="space-y-2">
                       {/* Confirmed full payoffs this period */}
@@ -855,11 +864,42 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                       )}
                     </div>
 
+                    {/* Savings contributions made from this period's surplus */}
+                    {hasContributions && (
+                      <div className={`space-y-2 ${rows.length > 0 || periodPaidOffIds.length > 0 || hasConfirmedPartials || showPartial ? 'mt-2 pt-2 border-t border-emerald-900/40' : ''}`}>
+                        {Object.entries(entry.savingsContributions ?? {}).map(([gid, amount]) => {
+                          const g = state.savingsGoals.find(sg => sg.id === gid);
+                          return (
+                            <div key={gid} className="flex items-center justify-between gap-2 text-sm text-violet-400">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <PiggyBank size={13} className="flex-shrink-0" />
+                                <span className="font-medium">{g?.name ?? 'Deleted goal'}</span>
+                                <span className="text-xs text-violet-600">
+                                  {fmt(amount)} saved{g ? ` · ${fmt(g.currentAmount)} / ${fmt(g.targetAmount)}` : ''}
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => onUndoSavingsContribution(gid, entry, amount)}
+                                className="flex-shrink-0 text-xs text-gray-600 hover:text-red-400 transition-colors"
+                                title="Undo this savings contribution"
+                              >
+                                Undo
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
                     {/* Goes to savings only when ALL active debts are fully covered */}
-                    {rows.length > 0 && !showPartial && remaining > 0 && rows.length === sorted.length && (
-                      <p className="text-xs text-gray-500 mt-2">
-                        {fmt(remaining)} left over goes to savings
-                      </p>
+                    {showSavings && (
+                      <SurplusToSavings
+                        key={`${entry.weekId}-${surplus}`}
+                        surplus={surplus}
+                        goals={state.savingsGoals}
+                        bordered={rows.length > 0 || periodPaidOffIds.length > 0 || hasConfirmedPartials || hasContributions}
+                        onAdd={(goalId, amount) => onAddSavingsContribution(goalId, entry, amount)}
+                      />
                     )}
                   </div>
                 </div>
@@ -889,6 +929,67 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SurplusToSavings({ surplus, goals, bordered, onAdd }: {
+  surplus: number;
+  goals: SavingsGoal[];
+  bordered: boolean;
+  onAdd: (goalId: string, amount: number) => void;
+}) {
+  // Default to the first goal that still has room to grow
+  const [goalId, setGoalId] = useState(
+    () => (goals.find(g => g.currentAmount < g.targetAmount) ?? goals[0])?.id ?? ''
+  );
+  const [amount, setAmount] = useState(surplus.toFixed(2));
+
+  const parsed = parseFloat(amount);
+  const valid = !!goals.find(g => g.id === goalId) && parsed > 0 && parsed <= surplus + 0.005;
+
+  return (
+    <div className={bordered ? 'mt-2 pt-2 border-t border-emerald-900/40' : ''}>
+      <p className="text-xs text-gray-400 mb-2">
+        <span className="text-violet-400 font-semibold">{fmt(surplus)}</span> surplus this period
+        {goals.length > 0 ? ' — add it to a savings goal:' : ''}
+      </p>
+      {goals.length === 0 ? (
+        <p className="text-xs text-gray-500">Add a savings goal on the Savings tab to put this surplus to work.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={goalId}
+            onChange={e => setGoalId(e.target.value)}
+            className="flex-1 min-w-[8rem] bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500"
+          >
+            {goals.map(g => (
+              <option key={g.id} value={g.id}>
+                {g.name} ({fmt(g.currentAmount)} / {fmt(g.targetAmount)})
+              </option>
+            ))}
+          </select>
+          <div className="relative">
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm">$</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              max={surplus}
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              className="w-28 bg-gray-800 border border-gray-700 rounded-lg pl-5 pr-2 py-1 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+          </div>
+          <button
+            disabled={!valid}
+            onClick={() => onAdd(goalId, Math.round(Math.min(parsed, surplus) * 100) / 100)}
+            className="flex items-center gap-1 text-xs bg-violet-700 hover:bg-violet-600 disabled:opacity-40 disabled:hover:bg-violet-700 text-white rounded-lg px-2 py-1.5 font-medium transition-colors"
+          >
+            <PiggyBank size={12} /> Add to Savings
+          </button>
+        </div>
+      )}
     </div>
   );
 }
