@@ -161,7 +161,8 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff, 
 
       const pLeftover = (exactInc + periodFallback + (pEntry?.extraIncome ?? 0)) - (dueCost + rentPer + customCost);
       const periodPaidOff = pEntry?.paidOffDebtIds ?? [];
-      const hasPartialThisPeriod = Object.keys(pEntry?.partialPayments ?? {}).length > 0;
+      const hasPartialThisPeriod = Object.keys(pEntry?.partialPayments ?? {})
+        .some(did => debts.some(d => d.id === did));
 
       if (pLeftover > 0 && periodPaidOff.length === 0 && !hasPartialThisPeriod) {
         // No isDebtActive filter — large surplus can zero upcoming debts too.
@@ -407,7 +408,11 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff, 
         const fallback = incomeStreams
           .filter(s => !s.nextPayDate && s.frequency !== 'one-time' && isIncomeActive(s, period.start))
           .reduce((sum, s) => sum + incomePerPeriod(s.amount, s.frequency), 0);
-        const partialPaymentCost = Object.values(entry.partialPayments ?? {}).reduce((s, v) => s + v, 0);
+        // Ignore partial payments for debts that have since been deleted — they
+        // can't be shown or undone, so they must not reduce the leftover.
+        const periodPartials = Object.entries(entry.partialPayments ?? {})
+          .filter(([did]) => debts.some(d => d.id === did));
+        const partialPaymentCost = periodPartials.reduce((s, [, v]) => s + v, 0);
         const periodIncome = exactIncome + fallback + entry.extraIncome;
         const savingsCost = Object.values(entry.savingsContributions ?? {}).reduce((s, v) => s + v, 0);
         const leftover = periodIncome - periodExpenses - paidOffCost - partialPaymentCost - savingsCost;
@@ -747,7 +752,7 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff, 
             )}
 
             {/* Extra payment suggestions — full payoffs + partial toward next debt */}
-            {(leftover > 0 || periodPaidOffIds.length > 0 || Object.keys(entry.partialPayments ?? {}).length > 0 || savingsCost > 0) && (() => {
+            {(leftover > 0 || periodPaidOffIds.length > 0 || periodPartials.length > 0 || savingsCost > 0) && (() => {
               // Eligible debts: not fully paid off this period, not partially paid this period,
               // balance > 0. sortByStrategy already excludes isPaidOff debts.
               const sorted = sortByStrategy(debts, state.payoffStrategy, state.debtOrder)
@@ -777,7 +782,7 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff, 
                 : 0;
               const showPartial = remaining > 150 && !!partialDebt;
 
-              const hasConfirmedPartials = Object.keys(entry.partialPayments ?? {}).length > 0;
+              const hasConfirmedPartials = periodPartials.length > 0;
               // Surplus can go to savings once every remaining debt is covered (or none are left).
               const surplus = Math.round(remaining * 100) / 100;
               const showSavings = !partialDebt && surplus > 0;
@@ -817,7 +822,7 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff, 
                       })}
 
                       {/* Confirmed partial payments this period */}
-                      {Object.entries(entry.partialPayments ?? {}).map(([did, amount]) => {
+                      {periodPartials.map(([did, amount]) => {
                         const d = debts.find(db => db.id === did);
                         return d ? (
                           <div key={did} className="flex items-center justify-between gap-2 text-sm text-blue-400">

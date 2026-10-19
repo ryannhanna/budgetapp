@@ -259,8 +259,24 @@ export default function BudgetApp() {
     update({ debts: [...stateRef.current.debts, { ...debt, id: uuid() }] });
   const updateDebt = (updated: Debt) =>
     update({ debts: stateRef.current.debts.map(d => d.id === updated.id ? updated : d) });
-  const deleteDebt = (id: string) =>
-    update({ debts: stateRef.current.debts.filter(d => d.id !== id) });
+  // Also strip the debt from every pay period's payoff/partial records so stale
+  // payments don't keep reducing that period's leftover.
+  const deleteDebt = (id: string) => {
+    const cur = stateRef.current;
+    const updatedEntries = cur.weekEntries.map(w => {
+      const partial = { ...(w.partialPayments ?? {}) };
+      const amounts = { ...(w.paidOffAmounts ?? {}) };
+      delete partial[id];
+      delete amounts[id];
+      return {
+        ...w,
+        paidOffDebtIds: (w.paidOffDebtIds ?? []).filter(did => did !== id),
+        paidOffAmounts: Object.keys(amounts).length > 0 ? amounts : undefined,
+        partialPayments: Object.keys(partial).length > 0 ? partial : undefined,
+      };
+    });
+    update({ debts: cur.debts.filter(d => d.id !== id), weekEntries: updatedEntries });
+  };
   const toggleDebtPaidOff = (id: string) => {
     const cur = stateRef.current;
     const debt = cur.debts.find(d => d.id === id);
