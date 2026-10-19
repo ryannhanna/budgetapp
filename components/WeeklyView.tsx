@@ -70,7 +70,7 @@ function saveOverride(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSuggestion, onPartialDebtPayment, onUndoPartialDebtPayment, onAddSavingsContribution, onUndoSavingsContribution, onUpdatePayPeriodConfig }: WeeklyViewProps) {
+export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff, onPayOffDebtViaSuggestion, onPartialDebtPayment, onUndoPartialDebtPayment, onAddSavingsContribution, onUndoSavingsContribution, onUpdatePayPeriodConfig }: WeeklyViewProps) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -565,8 +565,16 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
 
             {/* Footer */}
             <div className="flex items-center justify-between px-5 py-3 border-t border-gray-800 text-xs text-gray-500">
-              <span>Total expenses: {fmt(periodExpenses)}</span>
-              <span className={leftover >= 0 ? 'text-green-400' : 'text-red-400'}>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <span>Total expenses: {fmt(periodExpenses)}</span>
+                {paidOffCost + partialPaymentCost > 0 && (
+                  <span className="text-emerald-500">Extra debt payments: {fmt(paidOffCost + partialPaymentCost)}</span>
+                )}
+                {savingsCost > 0 && (
+                  <span className="text-violet-400">To savings: {fmt(savingsCost)}</span>
+                )}
+              </div>
+              <span className={`flex-shrink-0 ${leftover >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 Leftover: {leftover >= 0 ? '+' : ''}{fmt(leftover)}
               </span>
             </div>
@@ -789,11 +797,21 @@ export default function WeeklyView({ state, onUpsertEntry, onPayOffDebtViaSugges
                       {/* Confirmed full payoffs this period */}
                       {periodPaidOffIds.map(did => {
                         const d = debts.find(db => db.id === did);
+                        const paid = entry.paidOffAmounts?.[did] ?? simBals.get(did) ?? 0;
                         return d ? (
-                          <div key={did} className="flex items-center gap-1.5 text-sm text-emerald-400">
-                            <CheckCircle2 size={13} />
-                            <span className="font-medium">{d.name}</span>
-                            <span className="text-xs text-emerald-600">paid off 🎉</span>
+                          <div key={did} className="flex items-center justify-between gap-2 text-sm text-emerald-400">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <CheckCircle2 size={13} className="flex-shrink-0" />
+                              <span className="font-medium">{d.name}</span>
+                              <span className="text-xs text-emerald-600">{fmt(paid)} · paid off 🎉</span>
+                            </div>
+                            <button
+                              onClick={() => onToggleDebtPaidOff(did)}
+                              className="flex-shrink-0 text-xs text-gray-600 hover:text-red-400 transition-colors"
+                              title="Undo this payoff"
+                            >
+                              Undo
+                            </button>
                           </div>
                         ) : null;
                       })}
