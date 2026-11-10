@@ -176,11 +176,14 @@ export default function BudgetApp() {
     }
   }, []);
 
-  // Fetch the DB state and apply it when it differs from what this device last saw.
-  // A version LOWER than ours also counts: it means the DB was reset or recreated,
-  // and a strict ">" check would leave this device ignoring every update forever.
-  // force=true (manual Sync button) applies the DB state even if versions match.
-  const pull = useCallback(async (force = false) => {
+  // Fetch the DB state and apply it if appropriate for the mode:
+  // - 'poll':  only a strictly NEWER version. A lower version is almost always a
+  //            stale read racing our own save — applying it reverts the user's edit.
+  // - 'load':  any version that differs. On page load nothing is in flight, so a
+  //            lower version means the DB was reset; a strict ">" would leave this
+  //            device ignoring every update forever.
+  // - 'force': manual Sync button — always take the DB state.
+  const pull = useCallback(async (mode: 'poll' | 'load' | 'force' = 'poll') => {
     const seq = saveSeqRef.current;
     // A GET issued while a save is in flight can read the row before that save
     // commits and return AFTER it finishes — applying it would revert the edit.
@@ -199,7 +202,11 @@ export default function BudgetApp() {
     }
     if (!data) return;
     if (startedWhileSaving || savingRef.current || seq !== saveSeqRef.current) return;
-    if (force || data.version !== lastAppliedVersionRef.current) applySnapshot(data);
+    const last = lastAppliedVersionRef.current;
+    const apply = mode === 'force' ? true
+      : mode === 'load' ? data.version !== last
+      : data.version > last;
+    if (apply) applySnapshot(data);
   }, [applySnapshot, pushState]);
 
   // Load on mount: show localStorage immediately, then poll the DB for changes
@@ -215,7 +222,7 @@ export default function BudgetApp() {
 
     // Initial DB fetch — catches anything saved while this device was offline.
     // With no local copy, always take the DB state.
-    pull(!local);
+    pull(local ? 'load' : 'force');
 
     // ── Client-side polling (replaces SSE) ────────────────────────────────────
     // SSE kept a long-running edge-function connection alive per browser tab,
@@ -247,7 +254,7 @@ export default function BudgetApp() {
   const forceSync = useCallback(async () => {
     setIsSyncing(true);
     try {
-      await pull(true);
+      await pull('force');
     } finally {
       setIsSyncing(false);
     }
