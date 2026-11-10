@@ -2,13 +2,21 @@ import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 
 export const dynamic = 'force-dynamic';
+// The Neon driver queries over fetch(). Next 14 stores fetch responses in Vercel's
+// Data Cache (which survives redeploys), so without these every GET returned the
+// same frozen snapshot while PUTs still reached the DB — devices never saw each
+// other's changes, and polls applied the stale copy over fresh edits.
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+
+const db = () => neon(process.env.DATABASE_URL!, { fetchOptions: { cache: 'no-store' } });
 
 const USER_ID = 'default';
 let initialized = false;
 
 async function ensureTable() {
   if (initialized) return;
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = db();
   await sql`
     CREATE TABLE IF NOT EXISTS budget_state (
       id         SERIAL PRIMARY KEY,
@@ -33,7 +41,7 @@ const NO_CACHE = { 'Cache-Control': 'no-store' };
 export async function GET() {
   try {
     await ensureTable();
-    const sql = neon(process.env.DATABASE_URL!);
+    const sql = db();
     const rows = await sql`SELECT state, version FROM budget_state WHERE user_id = ${USER_ID}`;
     if (rows.length === 0) return NextResponse.json(null, { headers: NO_CACHE });
     return NextResponse.json(
@@ -49,7 +57,7 @@ export async function GET() {
 export async function PUT(req: Request) {
   try {
     await ensureTable();
-    const sql = neon(process.env.DATABASE_URL!);
+    const sql = db();
     const state = await req.json();
     const rows = await sql`
       INSERT INTO budget_state (user_id, state, version, updated_at)
