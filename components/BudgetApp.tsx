@@ -72,15 +72,19 @@ function lsWriteVersion(v: number) {
   try { localStorage.setItem(LS_VERSION_KEY, String(v)); } catch {}
 }
 
-async function dbGet(): Promise<{ state: BudgetState; version: number } | null> {
+type DbSnapshot = { state: BudgetState; version: number };
+
+// ok=false means the API/DB is unreachable (network error or 5xx) — distinct from
+// ok=true with data=null, which means the DB is reachable but has no saved state yet.
+async function dbGet(): Promise<{ ok: boolean; data: DbSnapshot | null }> {
   try {
     const res = await fetch('/api/budget', { cache: 'no-store' });
-    if (!res.ok) return null;
+    if (!res.ok) return { ok: false, data: null };
     const body = await res.json();
-    if (!body?.state) return null;
-    return { state: body.state, version: body.version ?? 0 };
+    if (!body?.state) return { ok: true, data: null };
+    return { ok: true, data: { state: body.state, version: body.version ?? 0 } };
   } catch {
-    return null;
+    return { ok: false, data: null };
   }
 }
 
@@ -108,6 +112,13 @@ export default function BudgetApp() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [liveStatus, setLiveStatus] = useState<'connecting' | 'live' | 'offline'>('connecting');
   const lastAppliedVersionRef = useRef(-1);
+  // Saves in flight, and a counter bumped on every local edit. A DB snapshot fetched
+  // while a save is pending (or that started before the latest edit) may predate
+  // that edit, so it must not be applied.
+  const pendingSavesRef = useRef(0);
+  const saveSeqRef = useRef(0);
+  // True when a local edit failed to reach the DB — it is re-pushed once the DB is back.
+  const unsavedRef = useRef(false);
   // Always-current state reference so event handlers never close over a stale snapshot.
   // Updated synchronously at the top of every render — safe to read in callbacks.
   const stateRef = useRef<BudgetState>(DEFAULT_STATE);
@@ -118,119 +129,125 @@ export default function BudgetApp() {
     return localStorage.getItem(LS_TAB_KEY) ?? 'dashboard';
   });
 
-  // Central helper: apply a DB result if it's newer than what we've seen.
-  const applyDbResult = useCallback((result: { state: BudgetState; version: number } | null, hasLocal: boolean) => {
-    if (!result) return;
-    if (result.version > lastAppliedVersionRef.current || (!hasLocal && result.version >= 0)) {
-      lastAppliedVersionRef.current = result.version;
-      lsWrite(result.state);
-      lsWriteVersion(result.version);
-      setState(result.state);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const applySnapshot = useCallback((snap: DbSnapshot) => {
+    lastAppliedVersionRef.current = snap.version;
+    lsWrite(snap.state);
+    lsWriteVersion(snap.version);
+    setState(snap.state);
   }, []);
 
-  // Load on mount: show localStorage immediately, then open a real-time SSE stream
-  // so every change from any other device is pushed here within ~1.5 s.
-  useEffect(() => {
-    async function load() {
-      // Show localStorage instantly — no spinner wait.
-      const local = lsRead();
-      if (local) {
-        setState(local);
-        lastAppliedVersionRef.current = lsVersion();
+  // Push the current local state to the DB. Used by update() and to retry
+  // edits that failed to save while the DB was unreachable.
+  const pushState = useCallback(async () => {
+    pendingSavesRef.current++;
+    setSyncStatus('saving');
+    try {
+      let version = await dbPut(stateRef.current);
+      if (version === null) {
+        // First attempt failed — wait 2s and retry once before giving up.
+        await new Promise(r => setTimeout(r, 2000));
+        version = await dbPut(stateRef.current);
       }
-      setHydrated(true);
-
-      // Initial DB fetch — catches anything saved while this device was offline.
-      const result = await dbGet();
-      applyDbResult(result, !!local);
+      if (version !== null) {
+        lastAppliedVersionRef.current = version;
+        lsWriteVersion(version); // record confirmed version so polls don't re-apply our own save
+        unsavedRef.current = false;
+        setSyncStatus('saved');
+      } else {
+        unsavedRef.current = true;
+        setSyncStatus('error');
+      }
+    } finally {
+      pendingSavesRef.current--;
     }
-    load();
+  }, []);
+
+  // Fetch the DB state and apply it when it differs from what this device last saw.
+  // A version LOWER than ours also counts: it means the DB was reset or recreated,
+  // and a strict ">" check would leave this device ignoring every update forever.
+  // force=true (manual Sync button) applies the DB state even if versions match.
+  const pull = useCallback(async (force = false) => {
+    const seq = saveSeqRef.current;
+    const { ok, data } = await dbGet();
+    if (!ok) {
+      setLiveStatus('offline');
+      return;
+    }
+    setLiveStatus('live');
+    if (unsavedRef.current) {
+      // DB is reachable again — push the edits that failed to save instead of
+      // overwriting them with the older DB copy.
+      if (pendingSavesRef.current === 0) await pushState();
+      return;
+    }
+    if (!data) return;
+    if (pendingSavesRef.current > 0 || seq !== saveSeqRef.current) return;
+    if (force || data.version !== lastAppliedVersionRef.current) applySnapshot(data);
+  }, [applySnapshot, pushState]);
+
+  // Load on mount: show localStorage immediately, then poll the DB for changes
+  // from other devices.
+  useEffect(() => {
+    // Show localStorage instantly — no spinner wait.
+    const local = lsRead();
+    if (local) {
+      setState(local);
+      lastAppliedVersionRef.current = lsVersion();
+    }
+    setHydrated(true);
+
+    // Initial DB fetch — catches anything saved while this device was offline.
+    // With no local copy, always take the DB state.
+    pull(!local);
 
     // ── Client-side polling (replaces SSE) ────────────────────────────────────
     // SSE kept a long-running edge-function connection alive per browser tab,
     // eating through Vercel's 4 h/month Fluid Active CPU free tier quickly.
-    // Polling uses standard Function Invocations (1 M/month free) instead:
-    // each 5-second poll is a short-lived serverless call, so the same usage
-    // costs ~0 CPU hours and stays well within the free plan.
-    async function poll() {
-      try {
-        const result = await dbGet();
-        if (result && result.version > lastAppliedVersionRef.current) {
-          lastAppliedVersionRef.current = result.version;
-          lsWrite(result.state);
-          lsWriteVersion(result.version);
-          setState(result.state);
-        }
-        setLiveStatus('live');
-      } catch {
-        setLiveStatus('offline');
-      }
-    }
-
-    const pollTimer = setInterval(poll, 5000);
-    setLiveStatus('live');
+    // Polling uses short-lived serverless calls instead. Hidden tabs don't poll —
+    // a tab left open in the background would otherwise call the API (and keep the
+    // database awake) 24/7 and burn through the free-tier limits.
+    const pollTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') pull();
+    }, 5000);
 
     // Immediate catch-up poll whenever this tab becomes visible after being hidden.
     function onVisible() {
-      if (document.visibilityState === 'visible') poll();
+      if (document.visibilityState === 'visible') pull();
     }
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
 
     return () => {
       clearInterval(pollTimer);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Manual "pull latest from DB" — exposed to the header Sync button.
+  // Manual Sync button: push this device's edits if they failed to save,
+  // otherwise pull the latest DB state unconditionally.
   const forceSync = useCallback(async () => {
     setIsSyncing(true);
     try {
-      const result = await dbGet();
-      if (result && result.version > lastAppliedVersionRef.current) {
-        lastAppliedVersionRef.current = result.version;
-        lsWrite(result.state);
-        lsWriteVersion(result.version);
-        setState(result.state);
-      }
+      await pull(true);
     } finally {
       setIsSyncing(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pull]);
 
   // update() writes to localStorage synchronously (survives refresh instantly),
-  // then fires dbPut. Polls call setState directly and never go through update().
+  // then pushes to the DB. Polls call setState directly and never go through update().
   // Uses stateRef.current so it always reads the live state, even if the closure
   // was created in an earlier render (prevents stale-closure overwrites on DB sync).
   const update = useCallback((partial: Partial<BudgetState>) => {
     const next = { ...stateRef.current, ...partial };
+    stateRef.current = next;
+    saveSeqRef.current++;
     setState(next);
     lsWrite(next); // synchronous — guaranteed before any refresh
-    setSyncStatus('saving');
-    dbPut(next).then(async version => {
-      if (version !== null) {
-        lastAppliedVersionRef.current = version;
-        lsWriteVersion(version); // record confirmed version so polls don't re-apply our own save
-        setSyncStatus('saved');
-      } else {
-        // First attempt failed — wait 2s and retry once before giving up.
-        await new Promise(r => setTimeout(r, 2000));
-        const retry = await dbPut(stateRef.current);
-        if (retry !== null) {
-          lastAppliedVersionRef.current = retry;
-          lsWriteVersion(retry);
-          setSyncStatus('saved');
-        } else {
-          setSyncStatus('error');
-        }
-      }
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    pushState();
+  }, [pushState]);
 
   // All handlers below read from stateRef.current (always live) rather than closing
   // over the state snapshot from the render in which they were created.
