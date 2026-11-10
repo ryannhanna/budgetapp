@@ -47,6 +47,9 @@ const DEFAULT_STATE: BudgetState = {
 
 const LS_STATE_KEY = 'budget-state';
 const LS_VERSION_KEY = 'budget-version';
+// Set while this device has local edits the DB hasn't confirmed yet. Persisted so
+// that edits made right before a reload (or while offline) are pushed, not lost.
+const LS_UNSAVED_KEY = 'budget-unsaved';
 
 function lsWrite(state: BudgetState) {
   try { localStorage.setItem(LS_STATE_KEY, JSON.stringify(state)); } catch {}
@@ -70,6 +73,15 @@ function lsVersion(): number {
 }
 function lsWriteVersion(v: number) {
   try { localStorage.setItem(LS_VERSION_KEY, String(v)); } catch {}
+}
+function lsSetUnsaved(unsaved: boolean) {
+  try {
+    if (unsaved) localStorage.setItem(LS_UNSAVED_KEY, '1');
+    else localStorage.removeItem(LS_UNSAVED_KEY);
+  } catch {}
+}
+function lsHasUnsaved(): boolean {
+  try { return localStorage.getItem(LS_UNSAVED_KEY) === '1'; } catch { return false; }
 }
 
 type DbSnapshot = { state: BudgetState; version: number };
@@ -169,6 +181,7 @@ export default function BudgetApp() {
         lsWriteVersion(version); // record confirmed version so polls don't re-apply our own save
       } while (dirtyRef.current);
       unsavedRef.current = false;
+      lsSetUnsaved(false);
       setSyncStatus('saved');
     } finally {
       savingRef.current = false;
@@ -179,10 +192,10 @@ export default function BudgetApp() {
   // Fetch the DB state and apply it if appropriate for the mode:
   // - 'poll':  only a strictly NEWER version. A lower version is almost always a
   //            stale read racing our own save — applying it reverts the user's edit.
-  // - 'load':  any version that differs. On page load nothing is in flight, so a
-  //            lower version means the DB was reset; a strict ">" would leave this
-  //            device ignoring every update forever.
-  // - 'force': manual Sync button — always take the DB state.
+  // - 'load' / 'force' (page load, Sync button): always take the DB state — the DB
+  //            is the source of truth. Version numbers alone can't be trusted here:
+  //            a device's stored version can match the DB while its cached state is
+  //            stale. Unsaved local edits are pushed first instead (see unsavedRef).
   const pull = useCallback(async (mode: 'poll' | 'load' | 'force' = 'poll') => {
     const seq = saveSeqRef.current;
     // A GET issued while a save is in flight can read the row before that save
@@ -203,9 +216,7 @@ export default function BudgetApp() {
     if (!data) return;
     if (startedWhileSaving || savingRef.current || seq !== saveSeqRef.current) return;
     const last = lastAppliedVersionRef.current;
-    const apply = mode === 'force' ? true
-      : mode === 'load' ? data.version !== last
-      : data.version > last;
+    const apply = mode !== 'poll' || data.version > last;
     if (apply) applySnapshot(data);
   }, [applySnapshot, pushState]);
 
@@ -217,12 +228,14 @@ export default function BudgetApp() {
     if (local) {
       setState(local);
       lastAppliedVersionRef.current = lsVersion();
+      // Edits from before the last reload that never reached the DB — push them.
+      unsavedRef.current = lsHasUnsaved();
     }
     setHydrated(true);
 
-    // Initial DB fetch — catches anything saved while this device was offline.
-    // With no local copy, always take the DB state.
-    pull(local ? 'load' : 'force');
+    // Initial DB fetch — the DB copy replaces the cached one (unless this device
+    // has unsaved edits, which are pushed instead).
+    pull('load');
 
     // ── Client-side polling (replaces SSE) ────────────────────────────────────
     // SSE kept a long-running edge-function connection alive per browser tab,
@@ -270,6 +283,7 @@ export default function BudgetApp() {
     saveSeqRef.current++;
     setState(next);
     lsWrite(next); // synchronous — guaranteed before any refresh
+    lsSetUnsaved(true);
     pushState();
   }, [pushState]);
 
