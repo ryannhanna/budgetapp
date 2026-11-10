@@ -149,6 +149,7 @@ export default function BudgetApp() {
       return;
     }
     savingRef.current = true;
+    saveSeqRef.current++; // invalidate any pull already in flight
     setSyncStatus('saving');
     try {
       do {
@@ -181,6 +182,9 @@ export default function BudgetApp() {
   // force=true (manual Sync button) applies the DB state even if versions match.
   const pull = useCallback(async (force = false) => {
     const seq = saveSeqRef.current;
+    // A GET issued while a save is in flight can read the row before that save
+    // commits and return AFTER it finishes — applying it would revert the edit.
+    const startedWhileSaving = savingRef.current;
     const { ok, data } = await dbGet();
     if (!ok) {
       setLiveStatus('offline');
@@ -194,7 +198,7 @@ export default function BudgetApp() {
       return;
     }
     if (!data) return;
-    if (savingRef.current || seq !== saveSeqRef.current) return;
+    if (startedWhileSaving || savingRef.current || seq !== saveSeqRef.current) return;
     if (force || data.version !== lastAppliedVersionRef.current) applySnapshot(data);
   }, [applySnapshot, pushState]);
 
