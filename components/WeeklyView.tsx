@@ -611,12 +611,10 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff, 
                         <span className={`flex-1 text-sm min-w-0 truncate ${excluded ? 'text-gray-600 line-through' : 'text-gray-300'}`}>
                           {e.name} <span className="text-gray-600 text-xs">(÷2)</span>
                         </span>
-                        <input
-                          type="number"
+                        <AmountInput
                           value={curAmt}
-                          min={0}
                           disabled={excluded}
-                          onChange={ev => saveOverride(entry, e.id, { amount: parseFloat(ev.target.value) || 0 }, onUpsertEntry)}
+                          onCommit={v => saveOverride(entry, e.id, { amount: v }, onUpsertEntry)}
                           className="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-right text-sm text-gray-200 focus:ring-1 focus:ring-blue-600 outline-none disabled:opacity-30"
                         />
                       </div>
@@ -640,12 +638,10 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff, 
                           {item.name}
                           {type === 'debt' && <span className="text-amber-600 text-xs ml-1">(min)</span>}
                         </span>
-                        <input
-                          type="number"
+                        <AmountInput
                           value={curAmt}
-                          min={0}
                           disabled={excluded}
-                          onChange={ev => saveOverride(entry, item.id, { amount: parseFloat(ev.target.value) || 0 }, onUpsertEntry)}
+                          onCommit={v => saveOverride(entry, item.id, { amount: v }, onUpsertEntry)}
                           className="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-right text-sm text-gray-200 focus:ring-1 focus:ring-blue-600 outline-none disabled:opacity-30"
                         />
                       </div>
@@ -674,16 +670,13 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff, 
                           <span className={`flex-1 text-sm min-w-0 truncate ${isCredit ? 'text-green-400' : 'text-gray-300'}`}>
                             {ci.name}
                           </span>
-                          <input
-                            type="number"
+                          <AmountInput
                             value={ci.amount}
-                            onChange={ev => {
-                              const v = parseFloat(ev.target.value);
-                              onUpsertEntry({
-                                ...entry,
-                                customItems: customItems.map(i => i.id === ci.id ? { ...i, amount: isNaN(v) ? 0 : v } : i),
-                              });
-                            }}
+                            allowNegative
+                            onCommit={v => onUpsertEntry({
+                              ...entry,
+                              customItems: customItems.map(i => i.id === ci.id ? { ...i, amount: v } : i),
+                            })}
                             className={`w-24 bg-gray-800 border rounded px-2 py-1 text-right text-sm focus:ring-1 focus:ring-blue-600 outline-none ${
                               isCredit ? 'border-green-700 text-green-400' : 'border-gray-700 text-gray-200'
                             }`}
@@ -953,6 +946,48 @@ export default function WeeklyView({ state, onUpsertEntry, onToggleDebtPaidOff, 
         </div>
       </div>
     </div>
+  );
+}
+
+// Number input that keeps its own draft while focused and saves only on blur or
+// Enter — saving on every keystroke fired a DB write per character and made it
+// impossible to type decimals or clear the field.
+function AmountInput({ value, disabled, allowNegative, onCommit, className }: {
+  value: number;
+  disabled?: boolean;
+  allowNegative?: boolean;
+  onCommit: (v: number) => void;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const [focused, setFocused] = useState(false);
+
+  // Follow external changes (e.g. another device) while not being edited
+  useEffect(() => {
+    if (!focused) setDraft(String(value));
+  }, [value, focused]);
+
+  const commit = () => {
+    const v = parseFloat(draft);
+    const next = Number.isFinite(v) && (allowNegative || v >= 0) ? Math.round(v * 100) / 100 : value;
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
+  };
+
+  return (
+    <input
+      type="number"
+      inputMode="decimal"
+      min={allowNegative ? undefined : 0}
+      step="0.01"
+      value={draft}
+      disabled={disabled}
+      onFocus={() => setFocused(true)}
+      onChange={ev => setDraft(ev.target.value)}
+      onBlur={() => { setFocused(false); commit(); }}
+      onKeyDown={ev => { if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur(); }}
+      className={className}
+    />
   );
 }
 

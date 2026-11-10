@@ -112,10 +112,11 @@ export default function BudgetApp() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [liveStatus, setLiveStatus] = useState<'connecting' | 'live' | 'offline'>('connecting');
   const lastAppliedVersionRef = useRef(-1);
-  // Saves in flight, and a counter bumped on every local edit. A DB snapshot fetched
-  // while a save is pending (or that started before the latest edit) may predate
-  // that edit, so it must not be applied.
-  const pendingSavesRef = useRef(0);
+  // A save is in flight / another edit arrived during it, and a counter bumped on
+  // every local edit. A DB snapshot fetched while a save is pending (or that started
+  // before the latest edit) may predate that edit, so it must not be applied.
+  const savingRef = useRef(false);
+  const dirtyRef = useRef(false);
   const saveSeqRef = useRef(0);
   // True when a local edit failed to reach the DB — it is re-pushed once the DB is back.
   const unsavedRef = useRef(false);
@@ -138,27 +139,39 @@ export default function BudgetApp() {
 
   // Push the current local state to the DB. Used by update() and to retry
   // edits that failed to save while the DB was unreachable.
+  // Saves are serialized: only one PUT is in flight at a time. Concurrent PUTs can
+  // land in the DB out of order, leaving an older state at the highest version —
+  // which the next poll would then pull back, reverting the user's edit. Edits made
+  // during a save mark dirtyRef, and the loop pushes the latest state once more.
   const pushState = useCallback(async () => {
-    pendingSavesRef.current++;
+    if (savingRef.current) {
+      dirtyRef.current = true;
+      return;
+    }
+    savingRef.current = true;
     setSyncStatus('saving');
     try {
-      let version = await dbPut(stateRef.current);
-      if (version === null) {
-        // First attempt failed — wait 2s and retry once before giving up.
-        await new Promise(r => setTimeout(r, 2000));
-        version = await dbPut(stateRef.current);
-      }
-      if (version !== null) {
+      do {
+        dirtyRef.current = false;
+        let version = await dbPut(stateRef.current);
+        if (version === null) {
+          // First attempt failed — wait 2s and retry once before giving up.
+          await new Promise(r => setTimeout(r, 2000));
+          version = await dbPut(stateRef.current);
+        }
+        if (version === null) {
+          unsavedRef.current = true;
+          setSyncStatus('error');
+          return;
+        }
         lastAppliedVersionRef.current = version;
         lsWriteVersion(version); // record confirmed version so polls don't re-apply our own save
-        unsavedRef.current = false;
-        setSyncStatus('saved');
-      } else {
-        unsavedRef.current = true;
-        setSyncStatus('error');
-      }
+      } while (dirtyRef.current);
+      unsavedRef.current = false;
+      setSyncStatus('saved');
     } finally {
-      pendingSavesRef.current--;
+      savingRef.current = false;
+      dirtyRef.current = false;
     }
   }, []);
 
@@ -177,11 +190,11 @@ export default function BudgetApp() {
     if (unsavedRef.current) {
       // DB is reachable again — push the edits that failed to save instead of
       // overwriting them with the older DB copy.
-      if (pendingSavesRef.current === 0) await pushState();
+      if (!savingRef.current) await pushState();
       return;
     }
     if (!data) return;
-    if (pendingSavesRef.current > 0 || seq !== saveSeqRef.current) return;
+    if (savingRef.current || seq !== saveSeqRef.current) return;
     if (force || data.version !== lastAppliedVersionRef.current) applySnapshot(data);
   }, [applySnapshot, pushState]);
 
